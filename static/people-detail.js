@@ -394,10 +394,18 @@
     // 點頭像 → 選檔
     $('#detailAvatar').addEventListener('click', () => fi.click());
 
-    // Cmd/Ctrl+V 貼上圖片：根據焦點決定上傳到哪
-    // - 焦點在 textarea/input → 不接管（讓貼上文字）
-    // - 焦點在頭像或 hover 頭像 → 上傳當頭像
-    // - 其他 → 上傳到附件
+    // Cmd/Ctrl+V 貼上圖片：用 Shift 區分頭像 vs 附件
+    // - 焦點在 textarea/input → 不接管（貼文字）
+    // - Cmd+Shift+V → 換頭像（限 1 張圖）
+    // - Cmd+V → 進附件
+    let _lastShiftDown = false;
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Shift') _lastShiftDown = true;
+    });
+    document.addEventListener('keyup', (e) => {
+      if (e.key === 'Shift') _lastShiftDown = false;
+    });
+
     document.addEventListener('paste', (e) => {
       const fbModal = document.getElementById('fbw-modal');
       if (fbModal && fbModal.style.display !== 'none') return;
@@ -414,10 +422,8 @@
       }
       if (files.length === 0) return;
       e.preventDefault();
-      // 優先：頭像被點過或 hover → 當頭像；否則進附件
-      const av = document.getElementById('detailAvatar');
-      const isAvatarFocus = av && av.matches(':hover');
-      if (isAvatarFocus && files.length === 1) {
+      // Shift 按住（Cmd+Shift+V）→ 換頭像
+      if (_lastShiftDown && files.length === 1) {
         uploadAvatarFile(files[0]);
       } else {
         uploadFiles(files);
