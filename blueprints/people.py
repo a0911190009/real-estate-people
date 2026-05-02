@@ -30,6 +30,7 @@ bp = Blueprint("people", __name__)
 # ─────────────── 常數 ───────────────
 
 VALID_BUCKETS = {"primary", "normal", "watching", "frozen", "closed", "blacklist"}
+VALID_GROUP_TYPES = {"permanent", "temporary"}
 VALID_CONTACT_TYPES = {"mobile", "home", "work", "line_id", "wechat", "email", "other"}
 VALID_ADDRESS_TYPES = {"home", "office", "other"}
 VALID_GENDERS = {"M", "F", "other"}
@@ -146,6 +147,14 @@ def _build_person_payload(data, email, is_create=True):
 
     birthday = str(data.get("birthday", "") or "").strip() or None
 
+    # 群組欄位（is_group=True 時有效）
+    is_group = bool(data.get("is_group", False))
+    group_type = str(data.get("group_type", "") or "").strip() or None
+    if is_group and group_type not in VALID_GROUP_TYPES:
+        group_type = "temporary"
+    members_raw = data.get("members", []) or []
+    members = [str(m).strip() for m in members_raw if str(m).strip()] if isinstance(members_raw, list) else []
+
     payload = {
         "name": name,
         "display_name": str(data.get("display_name", "") or "").strip() or None,
@@ -158,6 +167,9 @@ def _build_person_payload(data, email, is_create=True):
         "bucket": bucket,
         "warning": str(data.get("warning", "") or "").strip() or None,
         "source": _normalize_source(data.get("source", {})),
+        "is_group": is_group,
+        "group_type": group_type if is_group else None,
+        "members": members if is_group else [],
         "updated_at": server_timestamp(),
     }
 
@@ -951,6 +963,116 @@ def unlink_legacy(pid, kind):
 # ══════════════════════════════════════════
 #  關聯（人 ↔ 人，雙向同步寫）
 # ══════════════════════════════════════════
+
+@bp.route("/api/people/<pid>/members/<member_pid>", methods=["POST"])
+def add_member(pid, member_pid):
+    """加群組成員（必須 is_group=True）。"""
+    email, err = require_user()
+    if err:
+        return jsonify({"error": err[0]}), err[1]
+    db = get_db()
+    if db is None:
+        return jsonify({"error": "Firestore 未初始化"}), 503
+    if pid == member_pid:
+        return jsonify({"error": "不能加自己"}), 400
+    try:
+        gref = db.collection("people").document(pid)
+        gsnap = gref.get()
+        if not gsnap.exists or (gsnap.to_dict() or {}).get("created_by") != email:
+            return jsonify({"error": "找不到此群組"}), 404
+        gd = gsnap.to_dict() or {}
+        if not gd.get("is_group"):
+            return jsonify({"error": "對象不是群組"}), 400
+        # 確認成員存在
+        msnap = db.collection("people").document(member_pid).get()
+        if not msnap.exists or (msnap.to_dict() or {}).get("created_by") != email:
+            return jsonify({"error": "找不到該成員"}), 404
+        members = list(gd.get("members") or [])
+        if member_pid in members:
+            return jsonify({"ok": True, "members": members, "noop": True})
+        members.append(member_pid)
+        gref.update({"members": members, "updated_at": server_timestamp()})
+        gref.collection("timeline").add({
+            "type": "member_added",
+            "display_text": f"加入成員：{(msnap.to_dict() or {}).get('name')}",
+            "payload": {"member_pid": member_pid},
+            "occurred_at": server_timestamp(),
+            "created_by": email,
+        })
+        return jsonify({"ok": True, "members": members})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@bp.route("/api/people/<pid>/members/<member_pid>", methods=["DELETE"])
+def remove_member(pid, member_pid):
+    """移除群組成員。"""
+    email, err = require_user()
+    if err:
+        return jsonify({"error": err[0]}), err[1]
+    db = get_db()
+    if db is None:
+        return jsonify({"error": "Firestore 未初始化"}), 503
+    try:
+        gref = db.collection("people").document(pid)
+        gsnap = gref.get()
+        if not gsnap.exists or (gsnap.to_dict() or {}).get("created_by") != email:
+            return jsonify({"error": "找不到此群組"}), 404
+        gd = gsnap.to_dict() or {}
+        if not gd.get("is_group"):
+            return jsonify({"error": "對象不是群組"}), 400
+        members = [m for m in (gd.get("members") or []) if m != member_pid]
+        gref.update({"members": members, "updated_at": server_timestamp()})
+        return jsonify({"ok": True, "members": members})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@bp.route("/api/people/<pid>/mentions", methods=["GET"])
+def find_mentions(pid):
+    """
+    找所有「在哪些 contact 中被 @ 到」。
+    跨 people 的 contacts collection 全掃（資料量小於 1000 筆勉強可接受；
+    未來可改成 collection group query 加索引）。
+    回傳：{ items: [{from_person_id, from_person_name, contact_id, content, contact_at, mentions:[]}] }
+    """
+    email, err = require_user()
+    if err:
+        return jsonify({"error": err[0]}), err[1]
+    db = get_db()
+    if db is None:
+        return jsonify({"items": [], "error": "Firestore 未初始化"}), 503
+    try:
+        # collection group 查詢需要索引；先用 stream + filter
+        all_people = list(db.collection("people").where("created_by", "==", email).stream())
+        items = []
+        for pdoc in all_people:
+            pdata = pdoc.to_dict() or {}
+            if pdata.get("deleted_at"):
+                continue
+            for cdoc in pdoc.reference.collection("contacts").stream():
+                cdata = cdoc.to_dict() or {}
+                mentions = cdata.get("mentions") or []
+                if not mentions:
+                    continue
+                hit = any((m.get("person_id") == pid or m.get("person_id") == "@all") for m in mentions if isinstance(m, dict))
+                if not hit:
+                    continue
+                items.append({
+                    "from_person_id": pdoc.id,
+                    "from_person_name": pdata.get("name"),
+                    "from_is_group": bool(pdata.get("is_group")),
+                    "contact_id": cdoc.id,
+                    "content": cdata.get("content"),
+                    "contact_at": (cdata.get("contact_at").isoformat() if hasattr(cdata.get("contact_at"), "isoformat") else cdata.get("contact_at")),
+                    "mentions": mentions,
+                })
+        items.sort(key=lambda x: x.get("contact_at") or "", reverse=True)
+        return jsonify({"items": items})
+    except Exception as e:
+        logging.warning("find_mentions failed: %s", e)
+        return jsonify({"items": [], "error": str(e)}), 500
+
 
 @bp.route("/api/people/<pid>/relations", methods=["POST"])
 def add_relation(pid):

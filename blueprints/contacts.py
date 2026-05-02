@@ -107,11 +107,30 @@ def create_contact(pid):
     contact_at_raw = _str_or_none(data.get("contact_at"))
     contact_at_field = contact_at_raw if contact_at_raw else server_timestamp()
 
+    # @mention：[{person_id, name, start, end}]
+    mentions_raw = data.get("mentions", [])
+    mentions = []
+    if isinstance(mentions_raw, list):
+        for m in mentions_raw:
+            if not isinstance(m, dict):
+                continue
+            pid = str(m.get("person_id", "") or "").strip()
+            nm = str(m.get("name", "") or "").strip()
+            if not pid:
+                continue
+            try:
+                start = int(m.get("start", 0))
+                end = int(m.get("end", 0))
+            except (TypeError, ValueError):
+                start, end = 0, 0
+            mentions.append({"person_id": pid, "name": nm, "start": start, "end": end})
+
     payload = {
         "content": content,
         "via": via,
         "voice_recorded": bool(data.get("voice_recorded", False)),
         "attachments": data.get("attachments", []) if isinstance(data.get("attachments"), list) else [],
+        "mentions": mentions,
         "contact_at": contact_at_field,
         "created_at": server_timestamp(),
         "created_by": email,
@@ -172,6 +191,23 @@ def update_contact(pid, cid):
             update["via"] = via
         if data.get("contact_at"):
             update["contact_at"] = _str_or_none(data.get("contact_at"))
+        # @mention：可選更新
+        if "mentions" in data and isinstance(data["mentions"], list):
+            mentions = []
+            for m in data["mentions"]:
+                if not isinstance(m, dict):
+                    continue
+                p_pid = str(m.get("person_id", "") or "").strip()
+                nm = str(m.get("name", "") or "").strip()
+                if not p_pid:
+                    continue
+                try:
+                    start = int(m.get("start", 0))
+                    end = int(m.get("end", 0))
+                except (TypeError, ValueError):
+                    start, end = 0, 0
+                mentions.append({"person_id": p_pid, "name": nm, "start": start, "end": end})
+            update["mentions"] = mentions
         c_ref.update(update)
         return jsonify(_doc_to_dict(c_ref.get()))
     except Exception as e:

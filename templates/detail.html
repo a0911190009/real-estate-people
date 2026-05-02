@@ -36,6 +36,16 @@
     </div>
   </section>
 
+  <!-- 群組成員區（僅 is_group 顯示）-->
+  <section class="detail-section" id="membersSection" style="display:none">
+    <h3 class="section-title">
+      👥 成員
+      <button class="btn-tiny" id="btnAddMember" type="button">＋ 加成員</button>
+    </h3>
+    <div id="membersGrid" class="members-grid"></div>
+    <svg id="membersRelationsSvg" class="members-relations-svg" aria-hidden="true"></svg>
+  </section>
+
   <!-- 行動裝置快速動作（電話 / LINE / 導航） -->
   <section class="quick-actions" id="quickActions"></section>
 
@@ -98,6 +108,12 @@
     <div id="filesList" class="files-grid"></div>
   </section>
 
+  <!-- 「被提到」section（僅一般人 + 有資料時顯示）-->
+  <section class="detail-section" id="mentionedSection" style="display:none">
+    <h3 class="section-title">📌 被提到的紀錄</h3>
+    <div id="mentionedList"></div>
+  </section>
+
   <!-- 互動記事 -->
   <section class="detail-section">
     <h3 class="section-title">💬 互動記事</h3>
@@ -109,7 +125,10 @@
         <option value="showing">🏠 帶看</option>
         <option value="other">其他</option>
       </select>
-      <textarea id="contactInput" rows="2" placeholder="記錄這次互動的內容..."></textarea>
+      <div class="mention-wrapper">
+        <textarea id="contactInput" rows="2" placeholder="記錄互動內容（可用 @ 提及成員）..."></textarea>
+        <div id="mentionDropdown" class="mention-dropdown" style="display:none"></div>
+      </div>
       <button class="btn btn-primary" id="btnAddContact">送出</button>
     </div>
     <div id="contactList"></div>

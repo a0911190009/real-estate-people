@@ -18,6 +18,9 @@
     files: [],
     allPeopleForPicker: [], // 加關聯時用的人脈下拉選項
     selectedRelCandidate: null,
+    // 群組相關
+    memberDetails: [],   // is_group 時：成員 person doc list
+    mentionedItems: [],  // 一般人：被提到的紀錄
   };
 
   // ─── Role 顯示對應 ───
@@ -108,6 +111,27 @@
         const fr = await api('GET', `/api/people/${PID}/files`);
         state.files = fr.items || [];
       } catch (_) { state.files = []; }
+
+      // 群組：撈成員詳細資料
+      if (person.is_group && (person.members || []).length > 0) {
+        const memberData = await Promise.all(
+          person.members.map(mid => api('GET', `/api/people/${mid}`).catch(() => null))
+        );
+        state.memberDetails = memberData.filter(m => m && !m.deleted_at);
+      } else {
+        state.memberDetails = [];
+      }
+
+      // 一般人：撈「被提到的紀錄」
+      if (!person.is_group) {
+        try {
+          const md = await api('GET', `/api/people/${PID}/mentions`);
+          state.mentionedItems = md.items || [];
+        } catch (_) { state.mentionedItems = []; }
+      } else {
+        state.mentionedItems = [];
+      }
+
       renderAll();
     } catch (e) {
       $('#detailTitle').textContent = '載入失敗';
@@ -123,9 +147,188 @@
     renderInfoGrid();
     renderRoles();
     renderRelations();
+    renderMembers();
+    renderMentioned();
     renderFiles();
     renderTimeline();
     renderContacts();
+  }
+
+  // ═════════════════════════════════════════
+  //  群組成員區（僅 is_group 顯示）
+  // ═════════════════════════════════════════
+  function renderMembers() {
+    const sec = $('#membersSection');
+    if (!state.person.is_group) {
+      sec.style.display = 'none';
+      return;
+    }
+    sec.style.display = 'block';
+    const grid = $('#membersGrid');
+    if (state.memberDetails.length === 0) {
+      grid.innerHTML = '<p class="muted">尚無成員，點上方「＋ 加成員」</p>';
+      $('#membersRelationsSvg').innerHTML = '';
+      return;
+    }
+    grid.innerHTML = state.memberDetails.map((m, idx) => {
+      const av = m.avatar_b64
+        ? `<img src="${m.avatar_b64.startsWith('data:') ? m.avatar_b64 : 'data:image/jpeg;base64,'+m.avatar_b64}" alt="">`
+        : escapeHtml((m.name || '?').charAt(0));
+      const roles = (m.active_roles || []).map(r => {
+        const cfg = ROLE_DISPLAY[r] || { label: r, cls: 'role-other' };
+        return `<span class="role-pill ${cfg.cls}" style="font-size:10px">${escapeHtml(cfg.label)}</span>`;
+      }).join('');
+      return `
+        <div class="member-card" data-id="${m.id}" data-idx="${idx}">
+          <div class="member-avatar">${av}</div>
+          <div class="member-name">${escapeHtml(m.name)}</div>
+          <div class="member-roles">${roles}</div>
+          <button type="button" class="member-rm" title="移除成員" data-id="${m.id}">✕</button>
+        </div>
+      `;
+    }).join('');
+    grid.querySelectorAll('.member-card').forEach(card => {
+      card.addEventListener('click', (e) => {
+        if (e.target.closest('.member-rm')) return;
+        window.location.href = '/people/' + card.dataset.id;
+      });
+    });
+    grid.querySelectorAll('.member-rm').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        if (!confirm('移除此成員？')) return;
+        try {
+          await api('DELETE', `/api/people/${PID}/members/${btn.dataset.id}`);
+          showToast('已移除');
+          await loadAll();
+        } catch (e) { showToast('失敗：' + e.message, 'danger'); }
+      });
+    });
+    // 畫關係線
+    setTimeout(drawRelationLines, 50);
+  }
+
+  function drawRelationLines() {
+    const svg = $('#membersRelationsSvg');
+    const grid = $('#membersGrid');
+    if (!svg || !grid) return;
+    const gridRect = grid.getBoundingClientRect();
+    svg.setAttribute('width', gridRect.width);
+    svg.setAttribute('height', gridRect.height);
+    svg.style.width = gridRect.width + 'px';
+    svg.style.height = gridRect.height + 'px';
+    svg.style.top = grid.offsetTop + 'px';
+    svg.style.left = grid.offsetLeft + 'px';
+
+    const lines = [];
+    const seen = new Set();
+    state.memberDetails.forEach((m, i) => {
+      (m.relations || []).forEach(rel => {
+        const targetIdx = state.memberDetails.findIndex(x => x.id === rel.person_id);
+        if (targetIdx < 0 || targetIdx === i) return;
+        const key = [i, targetIdx].sort().join('-');
+        if (seen.has(key)) return;
+        seen.add(key);
+        lines.push({ from: i, to: targetIdx, relation: rel.relation });
+      });
+    });
+    if (lines.length === 0) {
+      svg.innerHTML = '';
+      return;
+    }
+    const cards = grid.querySelectorAll('.member-card');
+    const RELATION_LABELS = {
+      spouse: '配偶', parent: '父母', child: '子女', sibling: '兄弟姊妹',
+      friend: '朋友', partner: '合夥人', introduced_by: '介紹', introduced: '介紹', other: '關聯',
+    };
+    svg.innerHTML = lines.map(l => {
+      const a = cards[l.from], b = cards[l.to];
+      if (!a || !b) return '';
+      const ar = a.getBoundingClientRect();
+      const br = b.getBoundingClientRect();
+      const x1 = ar.left - gridRect.left + ar.width / 2;
+      const y1 = ar.top - gridRect.top + ar.height / 2;
+      const x2 = br.left - gridRect.left + br.width / 2;
+      const y2 = br.top - gridRect.top + br.height / 2;
+      const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+      return `
+        <line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#94a3b8" stroke-width="2" stroke-dasharray="4,3"/>
+        <rect x="${mx-22}" y="${my-10}" width="44" height="20" rx="10" fill="#fff" stroke="#cbd5e1"/>
+        <text x="${mx}" y="${my+4}" font-size="11" fill="#475569" text-anchor="middle">${escapeHtml(RELATION_LABELS[l.relation] || l.relation)}</text>
+      `;
+    }).join('');
+  }
+  window.addEventListener('resize', drawRelationLines);
+
+  // ═════════════════════════════════════════
+  //  「被提到的紀錄」區（一般人，read-only）
+  // ═════════════════════════════════════════
+  // 加成員：用既有的關聯人 modal（重用 search candidates）
+  async function openMemberPicker() {
+    if (state.allPeopleForPicker.length === 0) {
+      try {
+        const data = await api('GET', '/api/people?limit=500');
+        state.allPeopleForPicker = data.items || [];
+      } catch (_) {}
+    }
+    const candidates = state.allPeopleForPicker
+      .filter(p => p.id !== PID && !p.is_group && !(state.person.members || []).includes(p.id));
+    if (candidates.length === 0) {
+      showToast('沒有可加的成員');
+      return;
+    }
+    const choice = prompt(
+      `從現有人脈選一位加進此群組：\n\n` +
+      candidates.slice(0, 30).map((p, i) => `${i+1}. ${p.name}`).join('\n') +
+      `\n\n輸入編號（1-${Math.min(30, candidates.length)}）：`
+    );
+    if (!choice) return;
+    const idx = parseInt(choice, 10) - 1;
+    if (isNaN(idx) || idx < 0 || idx >= candidates.length) {
+      showToast('編號無效', 'danger');
+      return;
+    }
+    const pickedId = candidates[idx].id;
+    try {
+      await api('POST', `/api/people/${PID}/members/${pickedId}`);
+      showToast(`已加入「${candidates[idx].name}」`);
+      await loadAll();
+    } catch (e) { showToast('失敗：' + e.message, 'danger'); }
+  }
+
+  function renderMentioned() {
+    const sec = $('#mentionedSection');
+    if (state.person.is_group || state.mentionedItems.length === 0) {
+      sec.style.display = 'none';
+      return;
+    }
+    sec.style.display = 'block';
+    $('#mentionedList').innerHTML = state.mentionedItems.map(m => `
+      <div class="mentioned-item">
+        <div class="mentioned-meta">
+          <a href="/people/${escapeHtml(m.from_person_id)}" class="mentioned-from">
+            ${m.from_is_group ? '👥' : '👤'} ${escapeHtml(m.from_person_name)}
+          </a>
+          <span class="muted" style="font-size:11px">${escapeHtml(fmtDateTime(m.contact_at))}</span>
+        </div>
+        <div class="mentioned-content">${renderMentionContent(m.content, m.mentions || [])}</div>
+      </div>
+    `).join('');
+  }
+
+  function renderMentionContent(content, mentions) {
+    if (!mentions || mentions.length === 0) return escapeHtml(content || '');
+    // 把 mentions 在 content 中的位置變藍色 link
+    // 簡化：直接把所有 @姓名 的子字串轉成 link（不管 start/end）
+    let html = escapeHtml(content || '');
+    const sorted = mentions.slice().sort((a, b) => (b.name || '').length - (a.name || '').length);
+    for (const m of sorted) {
+      const name = escapeHtml(m.name || '');
+      if (!name || !m.person_id) continue;
+      const re = new RegExp('@' + name.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&'), 'g');
+      html = html.replace(re, `<a class="mention-link" href="/people/${escapeHtml(m.person_id)}">@${name}</a>`);
+    }
+    return html;
   }
 
   // ═════════════════════════════════════════
@@ -1265,6 +1468,9 @@
           contactAtLocal = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
         }
       }
+      const renderedContent = (c.mentions && c.mentions.length)
+        ? renderMentionContent(c.content, c.mentions)
+        : escapeHtml(c.content);
       return `
         <div class="contact-item" data-id="${c.id}" data-via="${escapeHtml(c.via || 'other')}" data-at="${contactAtLocal}">
           <div class="contact-view">
@@ -1273,7 +1479,7 @@
               ${voiceBadge}
               <span class="contact-time">${escapeHtml(fmtDateTime(c.contact_at))}</span>
             </div>
-            <div class="contact-content">${escapeHtml(c.content)}</div>
+            <div class="contact-content">${renderedContent}</div>
             ${keywords}
             ${audio}
             ${screenshot}
@@ -1356,14 +1562,173 @@
     const content = $('#contactInput').value.trim();
     if (!content) return showToast('請輸入互動內容', 'danger');
     const via = $('#contactVia').value;
+    // 從輸入內容中找出 @mention（依當前 mention 建議池）
+    const mentions = collectMentionsFromText(content);
     try {
-      await api('POST', `/api/people/${PID}/contacts`, { content, via });
+      await api('POST', `/api/people/${PID}/contacts`, { content, via, mentions });
       $('#contactInput').value = '';
+      _mentionState.activeMentions = [];
       showToast('已記錄');
       await loadAll();
     } catch (e) {
       showToast('儲存失敗：' + e.message, 'danger');
     }
+  }
+
+  // ─── @mention 自動完成 ───
+  const _mentionState = {
+    candidates: [],     // 群組成員 + @all（群組頁）；個人關聯人（一般人頁）
+    activeMentions: [], // 已加進這次輸入的 mentions（記錄使用過的）
+    triggerStart: -1,   // @ 起始位置
+    selectedIdx: 0,
+  };
+
+  function getMentionCandidates() {
+    // 群組頁：成員 + @all
+    if (state.person.is_group) {
+      const cands = state.memberDetails.map(m => ({
+        person_id: m.id, name: m.name,
+        avatar_b64: m.avatar_b64,
+      }));
+      cands.push({ person_id: '@all', name: 'all', label: '@all（全部成員）' });
+      return cands;
+    }
+    // 一般人頁：自己的關聯人
+    return (state.person.relations || []).map(r => {
+      const p = state.allPeopleForPicker.find(x => x.id === r.person_id);
+      return p ? { person_id: p.id, name: p.name, avatar_b64: p.avatar_b64 } : null;
+    }).filter(Boolean);
+  }
+
+  function bindMentionInput() {
+    const input = $('#contactInput');
+    const dropdown = $('#mentionDropdown');
+    if (!input || !dropdown) return;
+
+    async function ensureCandidates() {
+      _mentionState.candidates = getMentionCandidates();
+      // 如果是一般人頁但 allPeopleForPicker 還沒撈，去撈
+      if (!state.person.is_group && state.allPeopleForPicker.length === 0) {
+        try {
+          const data = await api('GET', '/api/people?limit=500');
+          state.allPeopleForPicker = data.items || [];
+          _mentionState.candidates = getMentionCandidates();
+        } catch (_) {}
+      }
+    }
+
+    input.addEventListener('input', async (e) => {
+      const val = input.value;
+      const pos = input.selectionStart || val.length;
+      // 找最近的 @
+      const before = val.slice(0, pos);
+      const atIdx = before.lastIndexOf('@');
+      if (atIdx < 0) {
+        dropdown.style.display = 'none';
+        _mentionState.triggerStart = -1;
+        return;
+      }
+      // @ 後不能含空白
+      const afterAt = before.slice(atIdx + 1);
+      if (/\s/.test(afterAt)) {
+        dropdown.style.display = 'none';
+        _mentionState.triggerStart = -1;
+        return;
+      }
+      _mentionState.triggerStart = atIdx;
+      await ensureCandidates();
+      const q = afterAt.toLowerCase();
+      const matches = _mentionState.candidates.filter(c =>
+        (c.name || '').toLowerCase().includes(q)
+      ).slice(0, 8);
+      if (matches.length === 0) {
+        dropdown.style.display = 'none';
+        return;
+      }
+      _mentionState.selectedIdx = 0;
+      dropdown.innerHTML = matches.map((c, i) => {
+        const av = c.avatar_b64
+          ? `<div class="mention-cand-avatar"><img src="${c.avatar_b64.startsWith('data:') ? c.avatar_b64 : 'data:image/jpeg;base64,'+c.avatar_b64}"></div>`
+          : `<div class="mention-cand-avatar">${escapeHtml((c.name || '?').charAt(0))}</div>`;
+        return `<div class="mention-cand ${i === 0 ? 'active' : ''}" data-pid="${escapeHtml(c.person_id)}" data-name="${escapeHtml(c.name)}">${av} ${escapeHtml(c.label || '@' + c.name)}</div>`;
+      }).join('');
+      dropdown.style.display = 'block';
+      dropdown.querySelectorAll('.mention-cand').forEach(el => {
+        el.addEventListener('mousedown', (ev) => {
+          ev.preventDefault();
+          insertMention(el.dataset.pid, el.dataset.name);
+        });
+      });
+    });
+
+    input.addEventListener('keydown', (e) => {
+      if (dropdown.style.display === 'none') return;
+      const cands = dropdown.querySelectorAll('.mention-cand');
+      if (cands.length === 0) return;
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        _mentionState.selectedIdx = (_mentionState.selectedIdx + 1) % cands.length;
+        cands.forEach((c, i) => c.classList.toggle('active', i === _mentionState.selectedIdx));
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        _mentionState.selectedIdx = (_mentionState.selectedIdx - 1 + cands.length) % cands.length;
+        cands.forEach((c, i) => c.classList.toggle('active', i === _mentionState.selectedIdx));
+      } else if (e.key === 'Enter' || e.key === 'Tab') {
+        const sel = cands[_mentionState.selectedIdx];
+        if (sel) {
+          e.preventDefault();
+          insertMention(sel.dataset.pid, sel.dataset.name);
+        }
+      } else if (e.key === 'Escape') {
+        dropdown.style.display = 'none';
+        _mentionState.triggerStart = -1;
+      }
+    });
+
+    input.addEventListener('blur', () => {
+      // delay 一下讓 mousedown 能 fire
+      setTimeout(() => { dropdown.style.display = 'none'; }, 150);
+    });
+  }
+
+  function insertMention(personId, name) {
+    const input = $('#contactInput');
+    if (_mentionState.triggerStart < 0) return;
+    const val = input.value;
+    const pos = input.selectionStart || val.length;
+    const before = val.slice(0, _mentionState.triggerStart);
+    const after = val.slice(pos);
+    const insert = `@${name} `;
+    input.value = before + insert + after;
+    const newPos = before.length + insert.length;
+    input.setSelectionRange(newPos, newPos);
+    // 記錄這次使用的 mention（後端寫入時會用）
+    _mentionState.activeMentions.push({
+      person_id: personId, name: name,
+      start: before.length, end: before.length + insert.length - 1,
+    });
+    $('#mentionDropdown').style.display = 'none';
+    _mentionState.triggerStart = -1;
+    input.focus();
+  }
+
+  function collectMentionsFromText(text) {
+    // 從 _mentionState.activeMentions 中過濾還在文中的
+    const result = [];
+    for (const m of _mentionState.activeMentions) {
+      const tag = '@' + m.name;
+      const idx = text.indexOf(tag);
+      if (idx >= 0) {
+        result.push({ person_id: m.person_id, name: m.name, start: idx, end: idx + tag.length });
+      }
+    }
+    // dedupe by person_id
+    const seen = new Set();
+    return result.filter(m => {
+      if (seen.has(m.person_id)) return false;
+      seen.add(m.person_id);
+      return true;
+    });
   }
   async function deleteContact(cid) {
     if (!confirm('刪除這筆互動記事？')) return;
@@ -1434,6 +1799,12 @@
     $('#relationModal').addEventListener('click', (e) => {
       if (e.target.id === 'relationModal') closeRelationModal();
     });
+
+    // @mention 自動完成
+    bindMentionInput();
+
+    // 加成員按鈕（群組頁）
+    $('#btnAddMember')?.addEventListener('click', openMemberPicker);
 
     // 附件上傳
     $('#btnAddFile').addEventListener('click', () => $('#hiddenFileInput').click());

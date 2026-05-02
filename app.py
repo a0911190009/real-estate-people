@@ -103,17 +103,10 @@ def detail_page(pid):
 
 @app.route("/groups")
 def groups_page():
-    """群組頁：把幾個人綁在一起（家庭、合夥、看屋小組）"""
-    PORTAL_URL = (os.environ.get("PORTAL_URL") or "").strip()
-    if not session.get("user_email"):
-        from flask import redirect
-        return redirect(PORTAL_URL or "/auth/portal-login")
-    return render_template(
-        "groups.html",
-        user_email=session.get("user_email", ""),
-        user_name=session.get("user_name", ""),
-        portal_url=PORTAL_URL,
-    )
+    """[已棄用] 群組現在統一在 /people 列表中（is_group=true 卡片）。
+    舊連結重導到主列表，並用顯示模式自動切到「只看群組」。"""
+    from flask import redirect
+    return redirect("/?show=groups")
 
 
 @app.route("/api/client-log", methods=["POST"])

@@ -90,16 +90,14 @@
   }
   window.api = api;
 
-  // ─── 載入人脈 + 群組 ───
+  // ─── 載入：人 + 群組統一從 /api/people 來（is_group 區分）───
   async function loadPeople() {
     $('#statusBar').textContent = '載入中...';
     try {
-      const [pData, gData] = await Promise.all([
-        api('GET', '/api/people?limit=500'),
-        api('GET', '/api/groups').catch(() => ({ items: [] })),
-      ]);
-      state.people = pData.items || [];
-      state.groups = (gData.items || []).filter(g => !g.archived);
+      const data = await api('GET', '/api/people?limit=500');
+      const all = data.items || [];
+      state.people = all.filter(x => !x.is_group);
+      state.groups = all.filter(x => x.is_group);
       $('#statusBar').textContent = `共 ${state.people.length} 位人脈、${state.groups.length} 個群組`;
       render();
     } catch (e) {
@@ -108,42 +106,78 @@
     }
   }
 
-  // ─── 群組過濾（同 bucket / 搜尋）───
+  // ─── 群組過濾（已是 person，bucket 一致）───
   function passesGroupFilters(g) {
-    // 群組目前無 bucket 概念，沿用人的 bucket：「進行中」與「全部」顯示，其餘 tab 隱藏
-    const bucketsCurrent = state.bucketFilter;
-    const isProgressTab = bucketsCurrent.length >= 2;  // 進行中合併 tab
-    if (!isProgressTab) return false;  // 群組只在「進行中」tab 顯示（避免出現在已成交/黑名單等）
+    // bucket 跟人一致過濾
+    if (state.bucketFilter.length > 0) {
+      const isClosedOnly = state.bucketFilter.length === 1 && state.bucketFilter[0] === 'closed';
+      if (isClosedOnly) {
+        if (g.bucket !== 'closed' && !g.has_completed_deal) return false;
+      } else if (!state.bucketFilter.includes(g.bucket)) {
+        return false;
+      }
+    }
     if (state.searchTerm) {
       const q = state.searchTerm.toLowerCase();
-      const hay = ((g.name || '') + ' ' + (g.description || '')).toLowerCase();
+      const hay = ((g.name || '') + ' ' + (g.warning || '')).toLowerCase();
       if (!hay.includes(q)) return false;
     }
-    if (state.roleFilter.length > 0) return false;  // 群組沒有角色
-    if (state.extraFilters.warning || state.extraFilters.stale ||
-        state.extraFilters.incomplete || state.extraFilters.agentNoAuth) return false;
+    if (state.roleFilter.length > 0) {
+      const active = g.active_roles || [];
+      if (!state.roleFilter.some(r => active.includes(r))) return false;
+    }
+    if (state.extraFilters.warning && !g.warning) return false;
+    if (state.extraFilters.stale) {
+      const d = daysSince(g.last_contact_at);
+      if (d == null || d < 30) return false;
+    }
     return true;
   }
 
   // ─── 群組卡片 ───
   function renderGroupCard(g) {
-    const memberCount = (g.member_ids || []).length;
-    const typeLabel = g.type === 'permanent' ? '永久' : '一次性';
-    const typeCls = g.type === 'permanent' ? 'g-type-perm' : 'g-type-temp';
+    const memberCount = (g.members || []).length;
+    const typeLabel = g.group_type === 'permanent' ? '永久' : '一次性';
+    const typeCls = g.group_type === 'permanent' ? 'g-type-perm' : 'g-type-temp';
+    // 取前 3 位成員頭像合成
+    const memberAvatars = (g.members || []).slice(0, 3).map(mid => {
+      const m = state.people.find(p => p.id === mid);
+      if (!m) return '<div class="g-mini-avatar">?</div>';
+      const init = (m.name || '?').charAt(0);
+      const av = m.avatar_b64
+        ? `<img src="${m.avatar_b64.startsWith('data:') ? m.avatar_b64 : 'data:image/jpeg;base64,'+m.avatar_b64}">`
+        : escapeHtml(init);
+      return `<div class="g-mini-avatar">${av}</div>`;
+    }).join('');
+
+    const days = daysSince(g.last_contact_at);
+    const cardClasses = ['person-card', 'group-list-card'];
+    if (g.warning) cardClasses.push('has-warning');
+    if (days != null && days >= 30) cardClasses.push('is-stale-red');
+    else if (days != null && days >= 14) cardClasses.push('is-stale-yellow');
+
+    const lastContactLabel = (() => {
+      if (days == null) return '<span class="last-contact-badge">未互動</span>';
+      if (days === 0) return '<span class="last-contact-badge">今天</span>';
+      if (days >= 30) return `<span class="last-contact-badge stale-red">⚠ ${days} 天</span>`;
+      if (days >= 14) return `<span class="last-contact-badge stale-yellow">${days} 天前</span>`;
+      return `<span class="last-contact-badge">${days} 天前</span>`;
+    })();
+
     return `
-      <div class="person-card group-list-card" data-kind="group" data-id="${g.id}" draggable="true">
+      <div class="${cardClasses.join(' ')}" data-kind="group" data-id="${g.id}" draggable="true">
         <div class="card-top">
-          <div class="avatar group-avatar">👨‍👩‍👧</div>
+          <div class="avatar group-avatar">
+            <div class="g-mini-stack">${memberAvatars || '👨‍👩‍👧'}</div>
+          </div>
           <div class="card-name">
-            <div class="card-name-title">${escapeHtml(g.name)}</div>
-            <div class="card-name-sub">👥 ${memberCount} 位成員</div>
+            <div class="card-name-title">👥 ${escapeHtml(g.name)}</div>
+            <div class="card-name-sub">${memberCount} 位成員 · ${typeLabel}</div>
           </div>
         </div>
-        <div class="card-pills">
-          <span class="g-type-pill ${typeCls}">${typeLabel}</span>
-        </div>
         <div class="card-bottom">
-          <span class="last-contact-badge muted">群組</span>
+          ${lastContactLabel}
+          ${g.warning ? `<span class="warning-icon" title="${escapeHtml(g.warning)}">⚠️</span>` : ''}
         </div>
       </div>
     `;
@@ -306,12 +340,8 @@
 
   function onCardClick(e) {
     if (_wasDragging) { e.preventDefault(); return; }
-    const card = e.currentTarget;
-    if (card.dataset.kind === 'group') {
-      window.location.href = '/groups#' + card.dataset.id;
-    } else {
-      window.location.href = '/people/' + card.dataset.id;
-    }
+    // 群組現在也是 person，URL 統一
+    window.location.href = '/people/' + e.currentTarget.dataset.id;
   }
 
   let _draggingKind = null;  // 'person' | 'group'
@@ -370,18 +400,12 @@
     const g = state.groups.find(x => x.id === groupId);
     const p = state.people.find(x => x.id === personId);
     if (!g || !p) return;
-    if ((g.member_ids || []).includes(personId)) {
+    if ((g.members || []).includes(personId)) {
       showToast(`「${p.name}」已在此群組中`);
       return;
     }
     try {
-      const updated = {
-        name: g.name,
-        type: g.type,
-        description: g.description || '',
-        member_ids: [...(g.member_ids || []), personId],
-      };
-      await api('PUT', `/api/groups/${groupId}`, updated);
+      await api('POST', `/api/people/${groupId}/members/${personId}`);
       showToast(`✓ 已把「${p.name}」加進群組「${g.name}」`);
       await loadPeople();
     } catch (e) {
@@ -398,15 +422,15 @@
     );
     if (name === null) return;
     if (!name.trim()) {
-      showToast('未取消，但群組名稱不能空白', 'danger');
+      showToast('群組名稱不能空白', 'danger');
       return;
     }
     try {
-      const data = await api('POST', '/api/groups', {
+      const data = await api('POST', '/api/people', {
         name: name.trim(),
-        type: 'temporary',
-        description: '',
-        member_ids: [personA.id, personB.id],
+        is_group: true,
+        group_type: 'temporary',
+        members: [personA.id, personB.id],
       });
       showToast(`✓ 已建立群組「${data.name || name}」`);
       await loadPeople();
@@ -752,14 +776,22 @@
   // ─── 啟動 ───
   document.addEventListener('DOMContentLoaded', () => {
     bindEvents();
+
+    // ?show=groups → 切到「只看群組」模式
+    const params = new URLSearchParams(window.location.search);
+    const showParam = params.get('show');
+    if (showParam === 'groups' || showParam === 'people') {
+      state.showMode = showParam;
+      $$('.show-mode-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === showParam));
+    }
+
     loadPeople().then(() => {
-      // 從詳情頁帶回的 ?edit=<id> 自動開啟編輯 modal
-      const params = new URLSearchParams(window.location.search);
       const editId = params.get('edit');
       if (editId && window.openPersonModal) {
         const p = state.people.find(x => x.id === editId);
         if (p) window.openPersonModal(p);
-        // 清掉 query 避免重整又開
+      }
+      if (showParam || params.get('edit')) {
         history.replaceState({}, '', '/');
       }
     });
