@@ -22,6 +22,7 @@ from flask import Blueprint, request, jsonify
 from auth import require_user
 from firestore_client import get_db, server_timestamp
 from gcs_helpers import gcs_upload_image, gcs_delete_blob, gcs_serve_blob
+from audio_helper import transcribe_audio, transcribe_image_conversation
 
 
 bp = Blueprint("people", __name__)
@@ -527,7 +528,8 @@ def upload_file(pid):
         file_id = uuid.uuid4().hex
         gcs_path = f"people-files/{email}/{pid}/{file_id}.{ext}" if ext else f"people-files/{email}/{pid}/{file_id}"
         content_type = f.mimetype or "application/octet-stream"
-        result = gcs_upload_image(gcs_path, f.read(), content_type=content_type)
+        file_bytes = f.read()
+        result = gcs_upload_image(gcs_path, file_bytes, content_type=content_type)
         if not result:
             return jsonify({"error": "GCS 上傳失敗"}), 500
 
@@ -539,23 +541,183 @@ def upload_file(pid):
             "uploaded_at": server_timestamp(),
             "uploaded_by": email,
         }
+
+        # 若是音訊或對話截圖，自動 Gemini 產生逐字稿 + 摘要 + 關鍵字
+        ai_result = None
+        ai_kind = None  # 'audio' / 'image_conversation'
+        if content_type.startswith("audio/"):
+            ai_result = transcribe_audio(file_bytes, content_type)
+            ai_kind = "audio" if ai_result else None
+        elif content_type.startswith("image/"):
+            ai_result = transcribe_image_conversation(file_bytes, content_type)
+            ai_kind = "image_conversation" if ai_result else None
+        if ai_result:
+            meta["transcript"] = ai_result["transcript"]
+            meta["summary"] = ai_result["summary"]
+            meta["keywords"] = ai_result["keywords"]
+            meta["ai_kind"] = ai_kind
+
         ref.collection("files").document(file_id).set(meta)
         ref.update({"updated_at": server_timestamp()})
 
+        ai_emoji = "🎙️" if ai_kind == "audio" else ("💬" if ai_kind == "image_conversation" else "")
         ref.collection("timeline").add({
             "type": "file_uploaded",
-            "display_text": f"上傳附件：{f.filename}",
-            "payload": {"filename": f.filename, "file_id": file_id},
+            "display_text": f"上傳附件：{f.filename}" + (f" {ai_emoji}" if ai_emoji else ""),
+            "payload": {"filename": f.filename, "file_id": file_id, "ai_kind": ai_kind},
             "occurred_at": server_timestamp(),
             "created_by": email,
         })
 
+        # 音訊或對話截圖：自動建一筆互動記事
+        if ai_result:
+            via_map = {"audio": "other", "image_conversation": "line"}
+            contact_doc = {
+                "content": ai_result["summary"] or ai_result["transcript"][:200],
+                "via": via_map.get(ai_kind, "other"),
+                "voice_recorded": ai_kind == "audio",
+                "from_screenshot": ai_kind == "image_conversation",
+                "transcript": ai_result["transcript"],
+                "keywords": ai_result["keywords"],
+                "ai_kind": ai_kind,
+                "attachments": [{"gcs_path": gcs_path, "filename": f.filename, "mime_type": content_type}],
+                "contact_at": server_timestamp(),
+                "created_at": server_timestamp(),
+                "created_by": email,
+            }
+            if ai_kind == "audio":
+                contact_doc["audio_file_id"] = file_id
+                contact_doc["audio_gcs_path"] = gcs_path
+            else:
+                contact_doc["screenshot_file_id"] = file_id
+                contact_doc["screenshot_gcs_path"] = gcs_path
+            c_ref = ref.collection("contacts").document()
+            c_ref.set(contact_doc)
+            ref.update({"last_contact_at": server_timestamp()})
+            tl_label = "🎙️ 錄音摘要" if ai_kind == "audio" else "💬 對話摘要"
+            ref.collection("timeline").add({
+                "type": "voice_contact_added" if ai_kind == "audio" else "screenshot_contact_added",
+                "display_text": f"{tl_label}：{(ai_result['summary'] or '')[:50]}",
+                "payload": {"contact_id": c_ref.id, "filename": f.filename, "ai_kind": ai_kind},
+                "occurred_at": server_timestamp(),
+                "created_by": email,
+            })
+
         # 把 timestamp 轉字串才能 jsonify
         meta_out = dict(meta)
         meta_out["uploaded_at"] = _now_utc().isoformat()
+        meta_out["transcribed"] = bool(ai_result)
         return jsonify(meta_out), 201
     except Exception as e:
         logging.warning("File upload failed: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+# ══════════════════════════════════════════
+#  線上錄音 → 自動逐字稿 + 摘要 + 互動記事
+# ══════════════════════════════════════════
+
+@bp.route("/api/people/<pid>/contacts/voice", methods=["POST"])
+def upload_voice_contact(pid):
+    """
+    瀏覽器 MediaRecorder 錄音上傳。
+    Form data: audio=<binary>（webm / mp4 / wav / m4a 都接受）
+    自動：存 GCS → Gemini transcribe → 寫入 contacts + files
+    回傳：{ok, contact_id, summary, transcript, keywords}
+    """
+    email, err = require_user()
+    if err:
+        return jsonify({"error": err[0]}), err[1]
+    db = get_db()
+    if db is None:
+        return jsonify({"error": "Firestore 未初始化"}), 503
+
+    f = request.files.get("audio")
+    if not f:
+        return jsonify({"error": "未提供音訊"}), 400
+
+    try:
+        person_ref = db.collection("people").document(pid)
+        snap = person_ref.get()
+        if not snap.exists or (snap.to_dict() or {}).get("created_by") != email:
+            return jsonify({"error": "找不到此人"}), 404
+
+        content_type = f.mimetype or "audio/webm"
+        ext_map = {
+            "audio/webm": "webm", "audio/mp4": "mp4", "audio/m4a": "m4a",
+            "audio/x-m4a": "m4a", "audio/mpeg": "mp3", "audio/mp3": "mp3",
+            "audio/wav": "wav", "audio/x-wav": "wav", "audio/ogg": "ogg",
+        }
+        ext = ext_map.get(content_type.lower(), "webm")
+        file_id = uuid.uuid4().hex
+        gcs_path = f"people-files/{email}/{pid}/voice-{file_id}.{ext}"
+        audio_bytes = f.read()
+
+        if not gcs_upload_image(gcs_path, audio_bytes, content_type=content_type):
+            return jsonify({"error": "GCS 上傳失敗"}), 500
+
+        # AI 轉檔
+        ai_result = transcribe_audio(audio_bytes, content_type)
+        if not ai_result:
+            ai_result = {
+                "transcript": "",
+                "summary": "（AI 轉檔失敗，可手動補充）",
+                "keywords": [],
+            }
+
+        filename = f.filename or f"voice-{_now_utc().strftime('%Y%m%d-%H%M%S')}.{ext}"
+
+        # 存 files collection
+        person_ref.collection("files").document(file_id).set({
+            "id": file_id,
+            "gcs_path": gcs_path,
+            "filename": filename,
+            "mime_type": content_type,
+            "transcript": ai_result["transcript"],
+            "summary": ai_result["summary"],
+            "keywords": ai_result["keywords"],
+            "uploaded_at": server_timestamp(),
+            "uploaded_by": email,
+            "from_voice_recording": True,
+        })
+
+        # 建一筆互動記事
+        c_ref = person_ref.collection("contacts").document()
+        c_ref.set({
+            "content": ai_result["summary"] or ai_result["transcript"][:200],
+            "via": "other",
+            "voice_recorded": True,
+            "transcript": ai_result["transcript"],
+            "keywords": ai_result["keywords"],
+            "audio_file_id": file_id,
+            "audio_gcs_path": gcs_path,
+            "attachments": [{"gcs_path": gcs_path, "filename": filename, "mime_type": content_type}],
+            "contact_at": server_timestamp(),
+            "created_at": server_timestamp(),
+            "created_by": email,
+        })
+        person_ref.update({
+            "last_contact_at": server_timestamp(),
+            "updated_at": server_timestamp(),
+        })
+        person_ref.collection("timeline").add({
+            "type": "voice_contact_added",
+            "display_text": f"🎙️ 錄音摘要：{(ai_result['summary'] or '')[:50]}",
+            "payload": {"contact_id": c_ref.id, "file_id": file_id},
+            "occurred_at": server_timestamp(),
+            "created_by": email,
+        })
+
+        return jsonify({
+            "ok": True,
+            "contact_id": c_ref.id,
+            "file_id": file_id,
+            "summary": ai_result["summary"],
+            "transcript": ai_result["transcript"],
+            "keywords": ai_result["keywords"],
+        }), 201
+    except Exception as e:
+        logging.warning("Voice upload failed: %s", e)
         return jsonify({"error": str(e)}), 500
 
 

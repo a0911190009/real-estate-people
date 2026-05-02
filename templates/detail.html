@@ -84,9 +84,17 @@
   <section class="detail-section">
     <h3 class="section-title">
       📎 附件
-      <button class="btn-tiny" id="btnAddFile" type="button">＋ 上傳檔案</button>
+      <span style="display:flex; gap:6px;">
+        <button class="btn-tiny" id="btnRecordAudio" type="button">🎤 錄音</button>
+        <button class="btn-tiny" id="btnAddFile" type="button">＋ 選檔</button>
+      </span>
     </h3>
     <input type="file" id="hiddenFileInput" multiple style="display:none">
+    <div id="fileDropZone" class="file-dropzone">
+      📥 拖檔到此 / 點 ＋ 選檔 / 點 🎤 錄音
+      <small>音訊檔（mp3/m4a/webm）會自動產生逐字稿與摘要</small>
+    </div>
+    <div id="uploadProgress" class="upload-progress-list"></div>
     <div id="filesList" class="files-grid"></div>
   </section>
 
@@ -145,6 +153,25 @@
       <span style="flex:1"></span>
       <button class="btn" id="btnCancelRelModal">取消</button>
       <button class="btn btn-primary" id="btnSaveRelation">儲存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 錄音 Modal -->
+<div class="modal-bg" id="recordModal" style="display:none">
+  <div class="modal" style="max-width:380px">
+    <div class="modal-hdr">
+      <h2>🎤 錄音</h2>
+      <button class="btn-icon" id="btnCloseRecModal" title="關閉">✕</button>
+    </div>
+    <div class="modal-body rec-modal-content">
+      <div class="rec-pulse idle" id="recPulse">🎤</div>
+      <div class="rec-time" id="recTime">00:00</div>
+      <div class="rec-status" id="recStatus">點下方「開始錄音」（最長 5 分鐘）</div>
+      <div class="rec-actions">
+        <button class="btn btn-primary" id="btnStartRec" type="button">🎙 開始錄音</button>
+        <button class="btn btn-danger" id="btnStopRec" type="button" style="display:none">⏹ 停止並上傳</button>
+      </div>
     </div>
   </div>
 </div>

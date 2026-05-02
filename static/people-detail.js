@@ -893,17 +893,33 @@
       return;
     }
     list.innerHTML = state.files.map(f => {
-      const isImg = (f.mime_type || '').startsWith('image/');
-      const isPdf = (f.mime_type || '') === 'application/pdf';
+      const mime = f.mime_type || '';
+      const isImg = mime.startsWith('image/');
+      const isAudio = mime.startsWith('audio/');
+      const isPdf = mime === 'application/pdf';
       const url = `/people-file/${encodeURI(f.gcs_path)}`;
-      const icon = isPdf ? '📄' : (f.filename || '').match(/\.(doc|docx)$/i) ? '📝' : '📎';
+      const fname = f.filename || '';
+
+      // 音訊：直接內嵌 <audio controls>，不用點擊跳出
+      if (isAudio) {
+        const summaryLine = f.summary ? `<div class="file-item-name" title="${escapeHtml(f.summary)}">🎙️ ${escapeHtml(f.summary.slice(0, 60))}</div>` : `<div class="file-item-name">🎙️ ${escapeHtml(fname)}</div>`;
+        return `
+          <div class="file-item file-audio" data-id="${escapeHtml(f.id)}" style="aspect-ratio:auto;padding:8px;">
+            <audio controls src="${url}" preload="metadata" style="width:100%;display:block;"></audio>
+            ${summaryLine}
+            <button type="button" class="file-rm" title="刪除" data-id="${escapeHtml(f.id)}">✕</button>
+          </div>
+        `;
+      }
+
+      const icon = isPdf ? '📄' : fname.match(/\.(doc|docx)$/i) ? '📝' : '📎';
       const inner = isImg
-        ? `<img src="${url}" alt="${escapeHtml(f.filename || '')}" loading="lazy">`
+        ? `<img src="${url}" alt="${escapeHtml(fname)}" loading="lazy">`
         : `<div class="file-item-icon">${icon}</div>`;
       return `
         <a href="${url}" target="_blank" class="file-item" data-id="${escapeHtml(f.id)}">
           ${inner}
-          <div class="file-item-name">${escapeHtml(f.filename || '')}</div>
+          <div class="file-item-name">${escapeHtml(fname)}</div>
           <button type="button" class="file-rm" title="刪除" data-id="${escapeHtml(f.id)}">✕</button>
         </a>
       `;
@@ -925,23 +941,203 @@
     });
   }
 
+  // 上傳一個檔案，回傳 Promise，含進度回呼
+  function uploadOneFile(file, endpoint = `/api/people/${PID}/files`, fieldName = 'file') {
+    return new Promise((resolve, reject) => {
+      const isAudio = (file.type || '').startsWith('audio/');
+      const row = document.createElement('div');
+      row.className = 'upload-row';
+      row.innerHTML = `
+        <span class="upr-name">${escapeHtml(file.name)}</span>
+        <span class="upr-bar"><span style="width:0%"></span></span>
+        <span class="upr-status">準備上傳…</span>
+      `;
+      $('#uploadProgress').appendChild(row);
+      const bar = row.querySelector('.upr-bar > span');
+      const status = row.querySelector('.upr-status');
+
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', endpoint);
+      xhr.upload.addEventListener('progress', (e) => {
+        if (e.lengthComputable) {
+          const pct = Math.round((e.loaded / e.total) * 100);
+          bar.style.width = pct + '%';
+          status.textContent = pct + '%';
+        }
+      });
+      xhr.upload.addEventListener('load', () => {
+        bar.style.width = '100%';
+        if (isAudio) {
+          row.classList.add('transcribing');
+          status.textContent = '🤖 AI 轉檔中…';
+        } else {
+          status.textContent = '處理中…';
+        }
+      });
+      xhr.addEventListener('load', () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          row.classList.remove('transcribing');
+          row.classList.add('done');
+          let txt = '✓ 完成';
+          try {
+            const j = JSON.parse(xhr.responseText);
+            if (j && j.transcribed) txt = '✓ 已轉逐字稿';
+          } catch (_) {}
+          status.textContent = txt;
+          setTimeout(() => row.remove(), 2500);
+          resolve();
+        } else {
+          row.classList.add('error');
+          status.textContent = '✗ 失敗';
+          setTimeout(() => row.remove(), 4000);
+          reject(new Error(`HTTP ${xhr.status}`));
+        }
+      });
+      xhr.addEventListener('error', () => {
+        row.classList.add('error');
+        status.textContent = '✗ 連線失敗';
+        setTimeout(() => row.remove(), 4000);
+        reject(new Error('network'));
+      });
+
+      const fd = new FormData();
+      fd.append(fieldName, file, file.name || 'upload');
+      xhr.withCredentials = true;
+      xhr.send(fd);
+    });
+  }
+
   async function uploadFiles(fileList) {
     const files = Array.from(fileList);
     if (files.length === 0) return;
-    const ok = [], err = [];
+    let ok = 0, fail = 0;
     for (const f of files) {
-      const fd = new FormData();
-      fd.append('file', f, f.name);
       try {
-        await api('POST', `/api/people/${PID}/files`, fd);
-        ok.push(f.name);
-      } catch (e) {
-        err.push(`${f.name}: ${e.message}`);
-      }
+        await uploadOneFile(f);
+        ok++;
+      } catch (_) { fail++; }
     }
-    showToast(`上傳完成 ${ok.length} / ${files.length}` + (err.length ? '，部分失敗' : ''),
-              err.length ? 'danger' : null);
+    if (fail) showToast(`完成 ${ok}/${files.length}（${fail} 失敗）`, 'danger');
+    else showToast(`已上傳 ${ok} 個檔案`);
     await loadAll();
+  }
+
+  // 拖曳上傳：bind 到 dropzone 與 detail-section
+  function bindFileDropzone() {
+    const dz = $('#fileDropZone');
+    if (!dz) return;
+    ['dragenter', 'dragover'].forEach(ev => {
+      dz.addEventListener(ev, (e) => {
+        e.preventDefault(); e.stopPropagation();
+        dz.classList.add('hover');
+      });
+    });
+    ['dragleave', 'drop'].forEach(ev => {
+      dz.addEventListener(ev, (e) => {
+        e.preventDefault(); e.stopPropagation();
+        dz.classList.remove('hover');
+      });
+    });
+    dz.addEventListener('drop', (e) => {
+      const files = e.dataTransfer && e.dataTransfer.files;
+      if (files && files.length) uploadFiles(files);
+    });
+    dz.addEventListener('click', () => $('#hiddenFileInput').click());
+  }
+
+  // ═════════════════════════════════════════
+  //  瀏覽器錄音（MediaRecorder）
+  // ═════════════════════════════════════════
+  let _recState = null; // {recorder, stream, chunks, startedAt, timerId}
+  const REC_MAX_MS = 5 * 60 * 1000;
+
+  function openRecordModal() {
+    $('#recordModal').style.display = 'flex';
+    resetRecModal();
+  }
+  function closeRecordModal() {
+    if (_recState) stopRecording(true);
+    $('#recordModal').style.display = 'none';
+  }
+  function resetRecModal() {
+    $('#recPulse').className = 'rec-pulse idle';
+    $('#recPulse').textContent = '🎤';
+    $('#recTime').textContent = '00:00';
+    $('#recStatus').textContent = '點下方「開始錄音」（最長 5 分鐘）';
+    $('#btnStartRec').style.display = 'inline-block';
+    $('#btnStopRec').style.display = 'none';
+  }
+
+  async function startRecording() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // 偵測 MIME（webm 在桌機 Chrome / Android、mp4 在 iOS Safari）
+      let mime = '';
+      const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/mpeg'];
+      for (const c of candidates) {
+        if (window.MediaRecorder && MediaRecorder.isTypeSupported(c)) { mime = c; break; }
+      }
+      const recorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+      const chunks = [];
+      recorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data); };
+      recorder.onstop = () => uploadRecordedAudio(chunks, recorder.mimeType || 'audio/webm');
+      recorder.start();
+
+      const startedAt = Date.now();
+      _recState = { recorder, stream, chunks, startedAt };
+      _recState.timerId = setInterval(() => {
+        const ms = Date.now() - startedAt;
+        const s = Math.floor(ms / 1000);
+        $('#recTime').textContent = `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
+        if (ms > REC_MAX_MS) stopRecording();
+      }, 250);
+
+      $('#recPulse').className = 'rec-pulse';
+      $('#recPulse').textContent = '🔴';
+      $('#recStatus').textContent = '錄音中…說話告一段落後點停止';
+      $('#btnStartRec').style.display = 'none';
+      $('#btnStopRec').style.display = 'inline-block';
+    } catch (e) {
+      showToast('無法存取麥克風：' + e.message, 'danger');
+    }
+  }
+
+  function stopRecording(skipUpload) {
+    if (!_recState) return;
+    const st = _recState;
+    _recState = null;
+    clearInterval(st.timerId);
+    if (skipUpload) {
+      try { st.recorder.ondataavailable = null; st.recorder.onstop = null; } catch(_){}
+    }
+    try { st.recorder.stop(); } catch(_){}
+    try { st.stream.getTracks().forEach(t => t.stop()); } catch(_){}
+  }
+
+  async function uploadRecordedAudio(chunks, mimeType) {
+    if (chunks.length === 0) {
+      showToast('沒有錄到聲音', 'danger');
+      resetRecModal();
+      return;
+    }
+    const blob = new Blob(chunks, { type: mimeType });
+    const ext = mimeType.includes('mp4') ? 'm4a' : (mimeType.includes('webm') ? 'webm' : 'audio');
+    const filename = `voice-${new Date().toISOString().replace(/[:.]/g,'-').slice(0,19)}.${ext}`;
+    const file = new File([blob], filename, { type: mimeType });
+
+    $('#recStatus').textContent = '上傳中…';
+    $('#btnStopRec').style.display = 'none';
+
+    try {
+      await uploadOneFile(file, `/api/people/${PID}/contacts/voice`, 'audio');
+      $('#recStatus').textContent = '✓ 已建立互動記事';
+      showToast('已上傳並轉檔');
+      setTimeout(() => closeRecordModal(), 800);
+      await loadAll();
+    } catch (e) {
+      $('#recStatus').textContent = '✗ 失敗：' + e.message;
+      showToast('上傳失敗：' + e.message, 'danger');
+    }
   }
 
   // ═════════════════════════════════════════
@@ -973,18 +1169,41 @@
       return;
     }
     const VIA_LABEL = { phone: '📞 電話', line: '💬 LINE', meet: '🤝 見面', showing: '🏠 帶看', other: '其他' };
-    list.innerHTML = state.contacts.map(c => `
-      <div class="contact-item" data-id="${c.id}">
-        <div class="contact-meta">
-          <span>${escapeHtml(VIA_LABEL[c.via] || '其他')}</span>
-          <span>${escapeHtml(fmtDateTime(c.contact_at))}</span>
+    list.innerHTML = state.contacts.map(c => {
+      const viaTag = `<span>${escapeHtml(VIA_LABEL[c.via] || '其他')}</span>`;
+      const voiceBadge = c.voice_recorded ? `<span class="contact-voice-badge">🎙️ 錄音</span>`
+        : (c.from_screenshot ? `<span class="contact-voice-badge" style="background:#dcfce7;color:#166534">💬 對話截圖</span>` : '');
+      const keywords = (c.keywords || []).length
+        ? `<div class="contact-keywords">${c.keywords.map(k => `<span class="contact-kw">${escapeHtml(k)}</span>`).join('')}</div>`
+        : '';
+      const audio = c.audio_gcs_path
+        ? `<audio class="contact-audio-player" controls preload="metadata" src="/people-file/${encodeURI(c.audio_gcs_path)}"></audio>`
+        : '';
+      const screenshot = c.screenshot_gcs_path
+        ? `<a href="/people-file/${encodeURI(c.screenshot_gcs_path)}" target="_blank"><img class="contact-screenshot" src="/people-file/${encodeURI(c.screenshot_gcs_path)}" alt="對話截圖" loading="lazy" style="max-width:240px;border-radius:6px;border:1px solid var(--border);margin-top:6px;cursor:zoom-in;"></a>`
+        : '';
+      const transcriptLabel = c.from_screenshot ? '📜 完整對話' : '📜 完整逐字稿';
+      const transcript = c.transcript
+        ? `<details class="contact-transcript"><summary>${transcriptLabel}</summary><pre>${escapeHtml(c.transcript)}</pre></details>`
+        : '';
+      return `
+        <div class="contact-item" data-id="${c.id}">
+          <div class="contact-meta">
+            ${viaTag}
+            ${voiceBadge}
+            <span>${escapeHtml(fmtDateTime(c.contact_at))}</span>
+          </div>
+          <div class="contact-content">${escapeHtml(c.content)}</div>
+          ${keywords}
+          ${audio}
+          ${screenshot}
+          ${transcript}
+          <div class="contact-actions">
+            <button class="link-btn danger" data-action="del-contact" data-id="${c.id}">刪除</button>
+          </div>
         </div>
-        <div class="contact-content">${escapeHtml(c.content)}</div>
-        <div class="contact-actions">
-          <button class="link-btn danger" data-action="del-contact" data-id="${c.id}">刪除</button>
-        </div>
-      </div>
-    `).join('');
+      `;
+    }).join('');
     list.querySelectorAll('[data-action="del-contact"]').forEach(b => {
       b.addEventListener('click', () => deleteContact(b.dataset.id));
     });
@@ -1078,6 +1297,16 @@
     $('#hiddenFileInput').addEventListener('change', (e) => {
       uploadFiles(e.target.files);
       e.target.value = '';
+    });
+    bindFileDropzone();
+
+    // 錄音 Modal
+    $('#btnRecordAudio').addEventListener('click', openRecordModal);
+    $('#btnCloseRecModal').addEventListener('click', closeRecordModal);
+    $('#btnStartRec').addEventListener('click', startRecording);
+    $('#btnStopRec').addEventListener('click', () => stopRecording(false));
+    $('#recordModal').addEventListener('click', (e) => {
+      if (e.target.id === 'recordModal') closeRecordModal();
     });
 
     loadAll();
