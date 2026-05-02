@@ -14,6 +14,7 @@
     contacts: [],
     showArchived: false,
     expandedRole: null, // 目前展開哪個 role_type
+    introducerStats: null,
   };
 
   // ─── Role 顯示對應 ───
@@ -91,6 +92,14 @@
       state.roles = rolesData.items || [];
       state.timeline = tlData.items || [];
       state.contacts = ctData.items || [];
+      // 若是介紹人，撈統計
+      if (state.roles.find(r => r.role_type === 'introducer' && !r.archived_at)) {
+        try {
+          state.introducerStats = await api('GET', `/api/people/${PID}/roles/introducer/stats`);
+        } catch (_) { state.introducerStats = null; }
+      } else {
+        state.introducerStats = null;
+      }
       renderAll();
     } catch (e) {
       $('#detailTitle').textContent = '載入失敗';
@@ -107,6 +116,83 @@
     renderRoles();
     renderTimeline();
     renderContacts();
+  }
+
+  // ═════════════════════════════════════════
+  //  頭像上傳（canvas 中心裁切 160px JPEG + Cmd+V 貼上）
+  // ═════════════════════════════════════════
+  const AVATAR_SIZE = 160;
+
+  async function uploadAvatarFile(file) {
+    if (!file || !file.type || !file.type.startsWith('image/')) {
+      showToast('請選圖片檔', 'danger');
+      return;
+    }
+    try {
+      const b64 = await processAvatar(file);
+      // 樂觀更新本地預覽
+      $('#detailAvatar').innerHTML = `<img src="${b64}" alt="">`;
+      await api('POST', `/api/people/${PID}/avatar`, { avatar_b64: b64 });
+      showToast('頭像已更新');
+      await loadAll();
+    } catch (e) {
+      showToast('上傳失敗：' + e.message, 'danger');
+    }
+  }
+
+  function processAvatar(file) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      const reader = new FileReader();
+      reader.onload = () => { img.src = reader.result; };
+      reader.onerror = () => reject(new Error('讀檔失敗'));
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = AVATAR_SIZE;
+        canvas.height = AVATAR_SIZE;
+        const ctx = canvas.getContext('2d');
+        // 中心裁切：取最短邊正方形
+        const minSide = Math.min(img.width, img.height);
+        const sx = (img.width - minSide) / 2;
+        const sy = (img.height - minSide) / 2;
+        ctx.drawImage(img, sx, sy, minSide, minSide, 0, 0, AVATAR_SIZE, AVATAR_SIZE);
+        resolve(canvas.toDataURL('image/jpeg', 0.85));
+      };
+      img.onerror = () => reject(new Error('圖片解析失敗'));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function bindAvatarUpload() {
+    // 隱藏 file input
+    let fi = document.getElementById('hiddenAvatarInput');
+    if (!fi) {
+      fi = document.createElement('input');
+      fi.type = 'file';
+      fi.id = 'hiddenAvatarInput';
+      fi.accept = 'image/*';
+      fi.style.display = 'none';
+      fi.addEventListener('change', (e) => {
+        if (e.target.files[0]) uploadAvatarFile(e.target.files[0]);
+        e.target.value = '';
+      });
+      document.body.appendChild(fi);
+    }
+    // 點頭像 → 選檔
+    $('#detailAvatar').addEventListener('click', () => fi.click());
+
+    // Cmd/Ctrl+V 貼上：限定回饋 widget modal 沒開時才接管
+    document.addEventListener('paste', (e) => {
+      const fbModal = document.getElementById('fbw-modal');
+      if (fbModal && fbModal.style.display !== 'none') return;
+      const items = (e.clipboardData || {}).items || [];
+      for (const it of items) {
+        if (it.type && it.type.indexOf('image') !== -1) {
+          const f = it.getAsFile();
+          if (f) { uploadAvatarFile(f); break; }
+        }
+      }
+    });
   }
 
   // ═════════════════════════════════════════
@@ -445,6 +531,7 @@
         </div>
         <div class="role-body">
           ${blockingHtml}
+          ${t === 'introducer' ? renderIntroducerStats() : ''}
           ${renderInfoChecklist(role, schema)}
           ${renderRoleForm(role, schema)}
           <div class="role-actions">
@@ -466,6 +553,36 @@
   }
   function getNested(obj, path) {
     return path.split('.').reduce((o, k) => (o ? o[k] : undefined), obj);
+  }
+
+  function renderIntroducerStats() {
+    const s = state.introducerStats;
+    if (!s) return '';
+    const intro = s.introduced || [];
+    const ratePct = Math.round((s.deal_rate || 0) * 100);
+    const list = intro.length ? intro.map(i => {
+      const dealMark = i.is_deal ? '<span class="intro-deal">✅ 成交</span>' : '<span class="intro-pending">⏳ 進行中</span>';
+      const roles = (i.active_roles || []).map(r => {
+        const cfg = ROLE_DISPLAY[r] || { label: r, cls: 'role-other' };
+        return `<span class="role-pill ${cfg.cls}" style="font-size:10px">${escapeHtml(cfg.label)}</span>`;
+      }).join('');
+      return `<a class="intro-row" href="/people/${i.id}">
+        <span class="intro-name">${escapeHtml(i.name || '')}</span>
+        ${roles}
+        ${dealMark}
+      </a>`;
+    }).join('') : '<div class="muted" style="padding:8px 0">尚無介紹紀錄</div>';
+
+    return `
+      <div class="intro-stats">
+        <div class="intro-numbers">
+          <div class="intro-number"><div class="intro-num-val">${s.introduced_count}</div><div class="intro-num-lbl">介紹過</div></div>
+          <div class="intro-number"><div class="intro-num-val intro-deal-color">${s.deal_count}</div><div class="intro-num-lbl">已成交</div></div>
+          <div class="intro-number"><div class="intro-num-val">${ratePct}%</div><div class="intro-num-lbl">成交率</div></div>
+        </div>
+        <div class="intro-list">${list}</div>
+      </div>
+    `;
   }
 
   function renderInfoChecklist(role, schema) {
@@ -721,6 +838,7 @@
   // ═════════════════════════════════════════
 
   document.addEventListener('DOMContentLoaded', () => {
+    bindAvatarUpload();
     $('#btnDeleteDetail').addEventListener('click', deletePerson);
     $('#btnEditDetail').addEventListener('click', () => {
       // 暫時：跳回列表頁開啟編輯 modal（或 future 直接 inline 編輯）

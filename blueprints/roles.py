@@ -274,13 +274,19 @@ def _add_timeline(person_ref, email, type_, display_text, payload):
 
 def _refresh_active_roles(person_ref):
     """
-    重新計算 active_roles + has_completed_deal（以 archived_at=null 的 role doc 為準）。
+    重新計算 active_roles + has_completed_deal + missing_required_count
+    （以 archived_at=null 的 role doc 為準）。
+
     has_completed_deal：任何 active role 的 status 為 '成交' 或 '已成交' → True
-    用於前端「已成交」tab 篩選。
+    missing_required_count：未填的「必要」資訊缺口數
+      - 買方必要：budget_max / category_pref / area_pref / decision_maker
+      - 賣方必要：property_address / category / identity / owner_price
+                 + identity=agent 時 agent_authorization_file
     """
     roles = list(person_ref.collection("roles").stream())
     active = []
     has_deal = False
+    missing = 0
     for r in roles:
         rd = r.to_dict() or {}
         if rd.get("archived_at"):
@@ -288,9 +294,23 @@ def _refresh_active_roles(person_ref):
         active.append(r.id)
         if rd.get("status") in ("成交", "已成交"):
             has_deal = True
+        # 計算「必要」欄位缺口數
+        if r.id == "buyer":
+            if not rd.get("budget_max"): missing += 1
+            if not (rd.get("category_pref") or []): missing += 1
+            if not (rd.get("area_pref") or []): missing += 1
+            if not rd.get("decision_maker"): missing += 1
+        elif r.id == "seller":
+            if not rd.get("property_address"): missing += 1
+            if not rd.get("category"): missing += 1
+            if not rd.get("identity"): missing += 1
+            if not rd.get("owner_price"): missing += 1
+            if rd.get("identity") == "agent" and not rd.get("agent_authorization_file"):
+                missing += 1
     person_ref.update({
         "active_roles": active,
         "has_completed_deal": has_deal,
+        "missing_required_count": missing,
         "updated_at": server_timestamp(),
     })
 

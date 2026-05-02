@@ -357,6 +357,19 @@ input, select, textarea { font-family: inherit; font-size: inherit; color: inher
   font-size: 14px;
   color: var(--danger);
 }
+.card-bottom-icons {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.info-incomplete-badge {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: #fef3c7;
+  color: #92400e;
+  font-weight: 500;
+}
 
 /* ============================================
    Empty state
@@ -642,6 +655,25 @@ input, select, textarea { font-family: inherit; font-size: inherit; color: inher
   flex-shrink: 0;
   overflow: hidden;
   cursor: pointer;
+  position: relative;
+  transition: opacity 0.15s;
+}
+.detail-avatar::after {
+  content: '📷';
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,0.45);
+  color: white;
+  font-size: 22px;
+  border-radius: 50%;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.detail-avatar:hover::after {
+  opacity: 1;
 }
 .detail-avatar img { width: 100%; height: 100%; object-fit: cover; }
 .detail-hero-text { flex: 1; min-width: 0; }
@@ -855,6 +887,58 @@ input, select, textarea { font-family: inherit; font-size: inherit; color: inher
   justify-content: flex-end;
   margin-top: 8px;
 }
+
+/* 介紹人 stats */
+.intro-stats {
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  border-radius: var(--radius);
+  padding: 12px;
+  margin-bottom: 12px;
+}
+.intro-numbers {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.intro-number {
+  text-align: center;
+  background: rgba(255,255,255,0.7);
+  border-radius: var(--radius-sm);
+  padding: 8px;
+}
+.intro-num-val {
+  font-size: 22px;
+  font-weight: 700;
+  color: #92400e;
+  line-height: 1;
+}
+.intro-num-val.intro-deal-color { color: #166534; }
+.intro-num-lbl {
+  font-size: 11px;
+  color: #78716c;
+  margin-top: 2px;
+}
+.intro-list {
+  background: rgba(255,255,255,0.6);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+}
+.intro-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px dashed rgba(0,0,0,0.1);
+  text-decoration: none;
+  color: var(--text);
+  font-size: 13px;
+}
+.intro-row:last-child { border-bottom: none; }
+.intro-row:hover .intro-name { color: var(--primary-dark); text-decoration: underline; }
+.intro-name { flex: 1; font-weight: 500; }
+.intro-deal { color: var(--success); font-size: 12px; font-weight: 500; }
+.intro-pending { color: #78716c; font-size: 12px; }
 
 .role-info-checklist {
   display: grid;

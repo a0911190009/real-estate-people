@@ -14,6 +14,7 @@
     extraFilters: {
       warning: false,
       stale: false,
+      incomplete: false,
       agentNoAuth: false,
     },
     sellerRolesCache: {},  // person_id → seller role doc（為了判斷 agent_no_auth）
@@ -140,6 +141,8 @@
       const d = daysSince(p.last_contact_at);
       if (d == null || d < 30) return false;
     }
+    // 資訊不完整（任一必要欄位未填）
+    if (state.extraFilters.incomplete && (p.missing_required_count || 0) === 0) return false;
     // 代理人缺授權書（這個比較貴，後面 render 時再判斷）
     return true;
   }
@@ -230,7 +233,10 @@
         ${pills ? `<div class="card-pills">${pills}</div>` : ''}
         <div class="card-bottom">
           ${lastContactLabel}
-          ${p.warning ? `<span class="warning-icon" title="${escapeHtml(p.warning)}">⚠️</span>` : ''}
+          <span class="card-bottom-icons">
+            ${(p.missing_required_count || 0) > 0 ? `<span class="info-incomplete-badge" title="${p.missing_required_count} 項必要資訊未填">❗ 缺 ${p.missing_required_count}</span>` : ''}
+            ${p.warning ? `<span class="warning-icon" title="${escapeHtml(p.warning)}">⚠️</span>` : ''}
+          </span>
         </div>
       </div>
     `;
@@ -385,6 +391,10 @@
     });
     $('#filterStale').addEventListener('change', (e) => {
       state.extraFilters.stale = e.target.checked;
+      render();
+    });
+    $('#filterIncomplete').addEventListener('change', (e) => {
+      state.extraFilters.incomplete = e.target.checked;
       render();
     });
     $('#filterAgentNoAuth').addEventListener('change', async (e) => {
