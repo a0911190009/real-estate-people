@@ -427,6 +427,25 @@ input, select, textarea { font-family: inherit; font-size: inherit; color: inher
   margin-bottom: 16px;
 }
 
+/* 垃圾桶列 */
+.trash-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.trash-row:last-child { border-bottom: none; }
+.trash-name { font-weight: 500; }
+.trash-meta { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.trash-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.trash-actions .btn-danger {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.trash-actions .btn-danger:hover { background: var(--danger-bg); }
+
 /* ============================================
    Modal
 ============================================ */
@@ -1421,6 +1440,53 @@ input, select, textarea { font-family: inherit; font-size: inherit; color: inher
   margin-top: 2px;
 }
 
+/* Timeline 月份分組 */
+.tl-group {
+  margin-bottom: 8px;
+}
+.tl-group-head {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 500;
+  margin: 6px 0 4px -16px;
+  padding: 2px 6px;
+  background: var(--bg);
+  display: inline-block;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  position: relative;
+}
+.tl-major {
+  padding-left: 10px;
+}
+.tl-major::before {
+  background: var(--success) !important;
+  width: 12px !important;
+  height: 12px !important;
+  left: -22px !important;
+}
+.tl-major .tl-text {
+  font-weight: 500;
+  color: var(--text);
+}
+.tl-fold-wrap {
+  margin-left: 0;
+}
+.tl-fold-btn {
+  background: transparent;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  padding: 4px 10px;
+  font-size: 11px;
+  color: var(--text-muted);
+  cursor: pointer;
+  margin: 4px 0 6px;
+  font-family: inherit;
+}
+.tl-fold-btn:hover { color: var(--primary); border-color: var(--primary); }
+.tl-fold-body { display: none; }
+.tl-group.expanded .tl-fold-body { display: block; }
+
 /* 互動記事 */
 .contact-input-row {
   display: grid;
@@ -1476,6 +1542,35 @@ input, select, textarea { font-family: inherit; font-size: inherit; color: inher
 }
 .contact-actions .link-btn:hover { color: var(--primary); }
 .contact-actions .link-btn.danger:hover { color: var(--danger); }
+
+.contact-edit {
+  border: 1px dashed var(--primary);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  background: var(--primary-bg);
+}
+.contact-edit-row {
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.contact-edit-via,
+.contact-edit-at,
+.contact-edit-content {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 6px 9px;
+  font-family: inherit;
+  font-size: 13px;
+  background: var(--bg-elev);
+  outline: none;
+  width: 100%;
+}
+.contact-edit-content { resize: vertical; }
+.contact-edit-via:focus,
+.contact-edit-at:focus,
+.contact-edit-content:focus { border-color: var(--primary); }
 
 /* ============================================
    行動裝置

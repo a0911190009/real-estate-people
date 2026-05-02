@@ -1144,18 +1144,88 @@
   //  Timeline
   // ═════════════════════════════════════════
 
+  // 重大事件類型（永遠不折疊）
+  const TL_MAJOR_TYPES = new Set([
+    'role_added', 'role_archived', 'role_reactivated',
+    'status_changed', 'warning_set',
+    'legacy_linked', 'person_created',
+    'voice_contact_added', 'screenshot_contact_added',
+    'auth_file_uploaded', 'person_restored',
+  ]);
+
   function renderTimeline() {
-    const items = state.timeline;
+    const items = state.timeline.slice().sort((a, b) =>
+      (b.occurred_at || '').localeCompare(a.occurred_at || ''));
     if (items.length === 0) {
       $('#timelineList').innerHTML = '<p class="muted" style="margin:0">尚無事件</p>';
       return;
     }
-    $('#timelineList').innerHTML = items.map(e => `
-      <div class="tl-item">
-        <div class="tl-time">${escapeHtml(fmtDateTime(e.occurred_at))}</div>
-        <div class="tl-text">${escapeHtml(e.display_text || e.type)}</div>
-      </div>
-    `).join('');
+
+    // 按月份分組（YYYY-MM）
+    const groups = [];  // [{key, label, major:[], minor:[]}]
+    const groupMap = new Map();
+    const todayKey = new Date().toISOString().slice(0, 7);
+    for (const e of items) {
+      const iso = e.occurred_at || '';
+      const key = iso.slice(0, 7) || '0000-00';
+      if (!groupMap.has(key)) {
+        const label = key === '0000-00' ? '時間不明' :
+                      key === todayKey ? `${key} ・ 本月` : key;
+        const g = { key, label, items: [] };
+        groupMap.set(key, g);
+        groups.push(g);
+      }
+      groupMap.get(key).items.push(e);
+    }
+
+    // 最近 3 個月預設展開
+    const monthsSorted = groups.map(g => g.key).filter(k => k !== '0000-00');
+    const expandedKeys = new Set(monthsSorted.slice(0, 3));
+
+    $('#timelineList').innerHTML = groups.map(g => {
+      const major = g.items.filter(e => TL_MAJOR_TYPES.has(e.type));
+      const minor = g.items.filter(e => !TL_MAJOR_TYPES.has(e.type));
+      const minorCount = minor.length;
+      const isExpanded = expandedKeys.has(g.key);
+      const expandedCls = isExpanded ? ' expanded' : '';
+
+      const majorHtml = major.map(e => `
+        <div class="tl-item tl-major">
+          <div class="tl-time">${escapeHtml(fmtDateTime(e.occurred_at))}</div>
+          <div class="tl-text">${escapeHtml(e.display_text || e.type)}</div>
+        </div>
+      `).join('');
+
+      const minorHtml = minor.map(e => `
+        <div class="tl-item">
+          <div class="tl-time">${escapeHtml(fmtDateTime(e.occurred_at))}</div>
+          <div class="tl-text">${escapeHtml(e.display_text || e.type)}</div>
+        </div>
+      `).join('');
+
+      return `
+        <div class="tl-group${expandedCls}" data-key="${escapeHtml(g.key)}">
+          <div class="tl-group-head">📅 ${escapeHtml(g.label)} ・ 共 ${g.items.length} 件</div>
+          ${majorHtml}
+          ${minorCount ? `
+            <div class="tl-fold-wrap">
+              <button class="tl-fold-btn" type="button" data-count="${minorCount}">${isExpanded ? '▼ 收合' : '▶ 展開'}其他 ${minorCount} 件</button>
+              <div class="tl-fold-body">${minorHtml}</div>
+            </div>
+          ` : ''}
+        </div>
+      `;
+    }).join('');
+
+    // 綁折疊按鈕
+    $$('.tl-fold-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const grp = btn.closest('.tl-group');
+        const expanded = grp.classList.toggle('expanded');
+        const num = btn.dataset.count || '0';
+        btn.textContent = `${expanded ? '▼ 收合' : '▶ 展開'}其他 ${num} 件`;
+      });
+    });
   }
 
   // ═════════════════════════════════════════
@@ -1186,27 +1256,100 @@
       const transcript = c.transcript
         ? `<details class="contact-transcript"><summary>${transcriptLabel}</summary><pre>${escapeHtml(c.transcript)}</pre></details>`
         : '';
+      // contact_at 轉成 datetime-local 用的格式（YYYY-MM-DDTHH:MM）
+      let contactAtLocal = '';
+      if (c.contact_at) {
+        const d = new Date(c.contact_at);
+        if (!isNaN(d.getTime())) {
+          const pad = n => String(n).padStart(2, '0');
+          contactAtLocal = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+        }
+      }
       return `
-        <div class="contact-item" data-id="${c.id}">
-          <div class="contact-meta">
-            ${viaTag}
-            ${voiceBadge}
-            <span>${escapeHtml(fmtDateTime(c.contact_at))}</span>
+        <div class="contact-item" data-id="${c.id}" data-via="${escapeHtml(c.via || 'other')}" data-at="${contactAtLocal}">
+          <div class="contact-view">
+            <div class="contact-meta">
+              ${viaTag}
+              ${voiceBadge}
+              <span class="contact-time">${escapeHtml(fmtDateTime(c.contact_at))}</span>
+            </div>
+            <div class="contact-content">${escapeHtml(c.content)}</div>
+            ${keywords}
+            ${audio}
+            ${screenshot}
+            ${transcript}
+            <div class="contact-actions">
+              ${c.transcript || c.audio_gcs_path || c.screenshot_gcs_path ? '' : `<button class="link-btn" data-action="edit-contact">✏️ 編輯</button>`}
+              <button class="link-btn danger" data-action="del-contact">刪除</button>
+            </div>
           </div>
-          <div class="contact-content">${escapeHtml(c.content)}</div>
-          ${keywords}
-          ${audio}
-          ${screenshot}
-          ${transcript}
-          <div class="contact-actions">
-            <button class="link-btn danger" data-action="del-contact" data-id="${c.id}">刪除</button>
+          <div class="contact-edit" style="display:none">
+            <div class="contact-edit-row">
+              <select class="contact-edit-via">
+                <option value="phone">📞 電話</option>
+                <option value="line">💬 LINE</option>
+                <option value="meet">🤝 見面</option>
+                <option value="showing">🏠 帶看</option>
+                <option value="other">其他</option>
+              </select>
+              <input type="datetime-local" class="contact-edit-at" value="${contactAtLocal}">
+            </div>
+            <textarea class="contact-edit-content" rows="3">${escapeHtml(c.content)}</textarea>
+            <div class="contact-actions" style="justify-content:flex-end">
+              <button class="link-btn" data-action="cancel-edit">取消</button>
+              <button class="link-btn" style="color:var(--primary)" data-action="save-edit">儲存</button>
+            </div>
           </div>
         </div>
       `;
     }).join('');
-    list.querySelectorAll('[data-action="del-contact"]').forEach(b => {
-      b.addEventListener('click', () => deleteContact(b.dataset.id));
+
+    list.querySelectorAll('[data-action]').forEach(b => {
+      b.addEventListener('click', () => contactAction(b));
     });
+  }
+
+  function contactAction(btn) {
+    const item = btn.closest('.contact-item');
+    if (!item) return;
+    const cid = item.dataset.id;
+    const action = btn.dataset.action;
+    if (action === 'del-contact') {
+      deleteContact(cid);
+    } else if (action === 'edit-contact') {
+      // 進入編輯模式：set 預設值（HTML 已有，但 select 要 setValue）
+      item.querySelector('.contact-edit-via').value = item.dataset.via || 'other';
+      item.querySelector('.contact-view').style.display = 'none';
+      item.querySelector('.contact-edit').style.display = 'block';
+    } else if (action === 'cancel-edit') {
+      item.querySelector('.contact-edit').style.display = 'none';
+      item.querySelector('.contact-view').style.display = 'block';
+    } else if (action === 'save-edit') {
+      saveContactEdit(item, cid);
+    }
+  }
+
+  async function saveContactEdit(item, cid) {
+    const via = item.querySelector('.contact-edit-via').value;
+    const atVal = item.querySelector('.contact-edit-at').value;  // YYYY-MM-DDTHH:MM
+    const content = item.querySelector('.contact-edit-content').value.trim();
+    if (!content) {
+      showToast('內容不能空白', 'danger');
+      return;
+    }
+    const payload = { content, via };
+    if (atVal) {
+      // 轉成 ISO 字串（含本地時區）
+      const d = new Date(atVal);
+      if (!isNaN(d.getTime())) payload.contact_at = d.toISOString();
+    }
+    try {
+      await api('PUT', `/api/people/${PID}/contacts/${cid}`, payload);
+      showToast('已更新');
+      await loadAll();
+    } catch (e) {
+      showToast('儲存失敗：' + e.message, 'danger');
+    }
   }
 
   async function addContact() {

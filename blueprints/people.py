@@ -368,6 +368,101 @@ def update_person(pid):
         return jsonify({"error": str(e)}), 500
 
 
+@bp.route("/api/people/trash", methods=["GET"])
+def list_trash():
+    """已軟刪除的人脈（垃圾桶）。"""
+    email, err = require_user()
+    if err:
+        return jsonify({"error": err[0]}), err[1]
+    db = get_db()
+    if db is None:
+        return jsonify({"items": [], "error": "Firestore 未初始化"}), 503
+    try:
+        docs = list(db.collection("people").where("created_by", "==", email).stream())
+        items = []
+        for doc in docs:
+            d = _doc_to_dict(doc)
+            if d.get("deleted_at"):
+                items.append(d)
+        items.sort(key=lambda x: x.get("deleted_at") or "", reverse=True)
+        return jsonify({"items": items, "count": len(items)})
+    except Exception as e:
+        return jsonify({"items": [], "error": str(e)}), 500
+
+
+@bp.route("/api/people/<pid>/restore", methods=["POST"])
+def restore_person(pid):
+    """還原（清除 deleted_at）。"""
+    email, err = require_user()
+    if err:
+        return jsonify({"error": err[0]}), err[1]
+    db = get_db()
+    if db is None:
+        return jsonify({"error": "Firestore 未初始化"}), 503
+    try:
+        ref = db.collection("people").document(pid)
+        snap = ref.get()
+        if not snap.exists or (snap.to_dict() or {}).get("created_by") != email:
+            return jsonify({"error": "找不到此人"}), 404
+        ref.update({
+            "deleted_at": None,
+            "updated_at": server_timestamp(),
+        })
+        ref.collection("timeline").add({
+            "type": "person_restored",
+            "display_text": "從垃圾桶還原",
+            "payload": {},
+            "occurred_at": server_timestamp(),
+            "created_by": email,
+        })
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@bp.route("/api/people/<pid>/purge", methods=["DELETE"])
+def purge_person(pid):
+    """
+    永久刪除：實刪 person + 所有子集合 + GCS 檔案。
+    僅能對已軟刪除（deleted_at 已設）的執行，避免誤刪。
+    """
+    email, err = require_user()
+    if err:
+        return jsonify({"error": err[0]}), err[1]
+    db = get_db()
+    if db is None:
+        return jsonify({"error": "Firestore 未初始化"}), 503
+    try:
+        ref = db.collection("people").document(pid)
+        snap = ref.get()
+        if not snap.exists:
+            return jsonify({"error": "找不到此人"}), 404
+        d = snap.to_dict() or {}
+        if d.get("created_by") != email:
+            return jsonify({"error": "找不到此人"}), 404
+        if not d.get("deleted_at"):
+            return jsonify({"error": "請先軟刪除（從垃圾桶才能永久刪除）"}), 400
+
+        # 刪所有 GCS 檔（files 子集合 + avatar 用 base64 不需處理）
+        files = list(ref.collection("files").stream())
+        for f in files:
+            fdata = f.to_dict() or {}
+            if fdata.get("gcs_path"):
+                gcs_delete_blob(fdata["gcs_path"])
+
+        # 刪所有子集合
+        for subname in ("files", "contacts", "roles", "timeline"):
+            for sub in ref.collection(subname).stream():
+                sub.reference.delete()
+
+        # 刪自己
+        ref.delete()
+        return jsonify({"ok": True})
+    except Exception as e:
+        logging.warning("Purge failed: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
 @bp.route("/api/people/reorder", methods=["POST"])
 def reorder_people():
     """

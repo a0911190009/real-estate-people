@@ -665,6 +665,14 @@
       if (window.openPersonModal) window.openPersonModal(null);
     });
 
+    // 垃圾桶
+    $('#btnTrash')?.addEventListener('click', openTrash);
+    $('#btnCloseTrash')?.addEventListener('click', closeTrash);
+    $('#btnCloseTrash2')?.addEventListener('click', closeTrash);
+    $('#trashModal')?.addEventListener('click', (e) => {
+      if (e.target.id === 'trashModal') closeTrash();
+    });
+
     // 顯示模式切換（全部 / 只看人 / 只看群組）
     $$('.show-mode-btn').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -685,6 +693,57 @@
       if (sidebar.classList.contains('open')) sidebar.classList.remove('open');
     });
   }
+
+  // ─── 垃圾桶 ───
+  async function openTrash() {
+    $('#trashModal').style.display = 'flex';
+    $('#trashList').innerHTML = '<p class="muted">載入中...</p>';
+    try {
+      const data = await api('GET', '/api/people/trash');
+      const items = data.items || [];
+      if (items.length === 0) {
+        $('#trashList').innerHTML = '<p class="muted" style="text-align:center; padding:30px 0">垃圾桶是空的</p>';
+        return;
+      }
+      $('#trashList').innerHTML = items.map(p => `
+        <div class="trash-row" data-id="${p.id}">
+          <div class="trash-info">
+            <div class="trash-name">${escapeHtml(p.name)}</div>
+            <div class="trash-meta muted">刪除於 ${escapeHtml(p.deleted_at || '?')}</div>
+          </div>
+          <div class="trash-actions">
+            <button class="btn-tiny" data-action="restore">↩ 還原</button>
+            <button class="btn-tiny btn-danger" data-action="purge">永久刪除</button>
+          </div>
+        </div>
+      `).join('');
+      $('#trashList').querySelectorAll('[data-action]').forEach(b => {
+        b.addEventListener('click', async (e) => {
+          const row = b.closest('.trash-row');
+          const pid = row.dataset.id;
+          const action = b.dataset.action;
+          if (action === 'restore') {
+            try {
+              await api('POST', `/api/people/${pid}/restore`);
+              showToast('已還原');
+              row.remove();
+              await loadPeople();
+            } catch (e) { showToast('還原失敗：' + e.message, 'danger'); }
+          } else {
+            if (!confirm('永久刪除？這個動作無法復原（含所有附件、互動記事、timeline）')) return;
+            try {
+              await api('DELETE', `/api/people/${pid}/purge`);
+              showToast('已永久刪除');
+              row.remove();
+            } catch (e) { showToast('刪除失敗：' + e.message, 'danger'); }
+          }
+        });
+      });
+    } catch (e) {
+      $('#trashList').innerHTML = `<p class="muted" style="color:var(--danger)">載入失敗：${e.message}</p>`;
+    }
+  }
+  function closeTrash() { $('#trashModal').style.display = 'none'; }
 
   // ─── 提供給 form 呼叫的「重新載入」 ───
   window.reloadPeople = loadPeople;

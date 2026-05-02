@@ -21,6 +21,7 @@
     <button class="btn-icon mobile-only" id="btnFilter" title="篩選">⚙️</button>
     <span class="user-name desktop-only">{{ user_name }}</span>
     <a href="/groups" class="btn-icon" title="群組">👨‍👩‍👧</a>
+    <button class="btn-icon" id="btnTrash" title="垃圾桶" type="button">🗑</button>
     <a href="{{ portal_url }}" class="btn-icon" title="回到 Portal">🏠</a>
   </div>
 </header>
@@ -195,6 +196,26 @@
       <span class="spacer"></span>
       <button class="btn" id="btnCancelModal">取消</button>
       <button class="btn btn-primary" id="btnSavePerson">儲存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 垃圾桶 Modal -->
+<div class="modal-bg" id="trashModal" style="display:none">
+  <div class="modal" style="max-width:560px">
+    <div class="modal-hdr">
+      <h2>🗑 垃圾桶</h2>
+      <button class="btn-icon" id="btnCloseTrash" title="關閉">✕</button>
+    </div>
+    <div class="modal-body">
+      <p class="muted" style="margin: 0 0 12px 0; font-size:12px">
+        刪除的客戶會放在這裡，可以還原或永久刪除。
+      </p>
+      <div id="trashList"></div>
+    </div>
+    <div class="modal-ftr">
+      <span style="flex:1"></span>
+      <button class="btn" id="btnCloseTrash2">關閉</button>
     </div>
   </div>
 </div>
