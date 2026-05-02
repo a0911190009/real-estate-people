@@ -4,26 +4,199 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>人脈管理</title>
+  <link rel="icon" type="image/png" href="/static/favicon.png">
   <link rel="stylesheet" href="/static/people.css">
 </head>
 <body>
-  <div id="app">
-    <header>
-      <h1>👥 人脈管理</h1>
-      <div class="user-info">
-        <span>{{ user_name }}</span>
-      </div>
-    </header>
-    <main>
-      <p style="padding:20px;color:#666">
-        Phase 1 開發中：列表頁 + 卡片頁將在下個 session 建立。<br>
-        目前 API 已可用：<code>POST /api/people</code>、<code>GET /api/people</code>。
-      </p>
-    </main>
+
+<!-- ============================================
+     Header
+============================================ -->
+<header class="hdr">
+  <div class="hdr-left">
+    <h1>👥 人脈管理</h1>
   </div>
-  <script>
-    window.USER_EMAIL = {{ user_email|tojson }};
-    window.PORTAL_URL = {{ portal_url|tojson }};
-  </script>
+  <div class="hdr-right">
+    <button class="btn-icon mobile-only" id="btnFilter" title="篩選">⚙️</button>
+    <span class="user-name desktop-only">{{ user_name }}</span>
+    <a href="{{ portal_url }}" class="btn-icon" title="回到 Portal">🏠</a>
+  </div>
+</header>
+
+<div class="layout">
+
+  <!-- ============================================
+       Sidebar：收納分類 + 篩選
+  ============================================ -->
+  <aside class="sidebar" id="sidebar">
+    <!-- 收納分類 tabs（垂直） -->
+    <div class="bucket-tabs">
+      <button class="bucket-tab active" data-bucket="primary,normal">📋 進行中</button>
+      <button class="bucket-tab" data-bucket="primary">⭐ 主力</button>
+      <button class="bucket-tab" data-bucket="normal">一般</button>
+      <button class="bucket-tab" data-bucket="frozen">🧊 冷凍</button>
+      <button class="bucket-tab" data-bucket="closed">✅ 已成交</button>
+      <button class="bucket-tab" data-bucket="blacklist">⛔ 黑名單</button>
+    </div>
+
+    <!-- 角色篩選（多選） -->
+    <div class="filter-section">
+      <div class="filter-title">角色標籤</div>
+      <label class="chk"><input type="checkbox" data-role="buyer"> <span class="role-pill role-buyer">買方</span></label>
+      <label class="chk"><input type="checkbox" data-role="seller"> <span class="role-pill role-seller">賣方</span></label>
+      <label class="chk"><input type="checkbox" data-role="introducer"> <span class="role-pill role-introducer">介紹人</span></label>
+      <label class="chk"><input type="checkbox" data-role="peer"> <span class="role-pill role-peer">同業</span></label>
+      <label class="chk"><input type="checkbox" data-role="landlord"> <span class="role-pill role-landlord">房東</span></label>
+      <label class="chk"><input type="checkbox" data-role="owner_friend"> <span class="role-pill role-other">屋主朋友</span></label>
+      <label class="chk"><input type="checkbox" data-role="friend"> <span class="role-pill role-other">朋友</span></label>
+      <label class="chk"><input type="checkbox" data-role="relative"> <span class="role-pill role-other">親戚</span></label>
+    </div>
+
+    <!-- 額外條件 -->
+    <div class="filter-section">
+      <div class="filter-title">其他條件</div>
+      <label class="chk"><input type="checkbox" id="filterWarning"> ⚠️ 有警示語</label>
+      <label class="chk"><input type="checkbox" id="filterStale"> 🟡 30 天沒聯絡</label>
+      <label class="chk"><input type="checkbox" id="filterAgentNoAuth"> 🔒 代理人缺授權書</label>
+    </div>
+
+    <button class="btn btn-clear" id="btnClearFilters">清除所有篩選</button>
+  </aside>
+
+  <!-- ============================================
+       Main：搜尋 + 卡片網格
+  ============================================ -->
+  <main class="main">
+    <div class="toolbar">
+      <input type="search" id="searchInput" placeholder="🔍 搜尋姓名 / 電話 / 公司..." class="search">
+      <button class="btn btn-primary" id="btnAddPerson">＋ 新增</button>
+    </div>
+
+    <div class="status-bar" id="statusBar">載入中...</div>
+
+    <div class="card-grid" id="cardGrid"></div>
+
+    <div class="empty-state" id="emptyState" style="display:none">
+      <div class="empty-icon">👥</div>
+      <p class="empty-text">這個分類目前沒有人脈</p>
+      <button class="btn btn-primary" onclick="document.getElementById('btnAddPerson').click()">新增第一個人脈</button>
+    </div>
+  </main>
+</div>
+
+<!-- ============================================
+     Modal：新增 / 編輯人
+============================================ -->
+<div class="modal-bg" id="personModal" style="display:none">
+  <div class="modal">
+    <div class="modal-hdr">
+      <h2 id="modalTitle">新增人脈</h2>
+      <button class="btn-icon" id="btnCloseModal" title="關閉">✕</button>
+    </div>
+    <form id="personForm" class="modal-body" autocomplete="off">
+      <input type="hidden" id="f_id">
+
+      <!-- 基本 -->
+      <div class="form-section">
+        <div class="form-row">
+          <label class="lbl">姓名 <span class="req">*</span></label>
+          <input type="text" id="f_name" required>
+        </div>
+        <div class="form-row">
+          <label class="lbl">暱稱 / 稱呼</label>
+          <input type="text" id="f_display_name" placeholder="老陳、王董...">
+        </div>
+        <div class="form-row form-row-2col">
+          <div>
+            <label class="lbl">生日</label>
+            <input type="date" id="f_birthday">
+            <small id="f_zodiac_hint" class="hint"></small>
+          </div>
+          <div>
+            <label class="lbl">性別</label>
+            <select id="f_gender">
+              <option value="">不填</option>
+              <option value="M">男</option>
+              <option value="F">女</option>
+              <option value="other">其他</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <label class="lbl">公司 / 職場</label>
+          <input type="text" id="f_company" placeholder="同業可填，例：XX 房屋仲介">
+        </div>
+      </div>
+
+      <!-- 收納分類 -->
+      <div class="form-section">
+        <label class="lbl">📂 收納分類</label>
+        <div class="radio-group">
+          <label class="radio"><input type="radio" name="bucket" value="primary"> ⭐ 主力</label>
+          <label class="radio"><input type="radio" name="bucket" value="normal" checked> 一般</label>
+          <label class="radio"><input type="radio" name="bucket" value="frozen"> 🧊 冷凍</label>
+          <label class="radio"><input type="radio" name="bucket" value="closed"> ✅ 已成交</label>
+          <label class="radio"><input type="radio" name="bucket" value="blacklist"> ⛔ 黑名單</label>
+        </div>
+      </div>
+
+      <!-- 警示語（紅色強調） -->
+      <div class="form-section warning-section">
+        <label class="lbl">⚠️ 警示語（會在卡片頂部紅底顯示）</label>
+        <textarea id="f_warning" rows="2" placeholder="例：太太不知道在找房，只能聯絡先生"></textarea>
+      </div>
+
+      <!-- 多聯絡方式 -->
+      <div class="form-section">
+        <label class="lbl">📱 聯絡方式</label>
+        <div id="contactsBox" class="dynamic-list"></div>
+        <button type="button" class="btn-add" id="btnAddContact">+ 加聯絡方式</button>
+      </div>
+
+      <!-- 多地址 -->
+      <div class="form-section">
+        <label class="lbl">🏠 地址</label>
+        <div id="addressesBox" class="dynamic-list"></div>
+        <button type="button" class="btn-add" id="btnAddAddress">+ 加地址</button>
+      </div>
+
+      <!-- 來源 -->
+      <div class="form-section">
+        <label class="lbl">📋 來源管道</label>
+        <div class="form-row form-row-2col">
+          <select id="f_source_channel">
+            <option value="other">其他</option>
+            <option value="referral">介紹</option>
+            <option value="ad">廣告</option>
+            <option value="walk_in">路過</option>
+            <option value="phone_in">來電</option>
+            <option value="peer">同業</option>
+            <option value="company">公司分配</option>
+          </select>
+          <select id="f_source_referrer" disabled>
+            <option value="">（選介紹人）</option>
+          </select>
+        </div>
+        <input type="text" id="f_source_note" placeholder="補充備註（選填）">
+      </div>
+    </form>
+    <div class="modal-ftr">
+      <button class="btn btn-danger" id="btnDeletePerson" style="display:none">🗑 刪除</button>
+      <span class="spacer"></span>
+      <button class="btn" id="btnCancelModal">取消</button>
+      <button class="btn btn-primary" id="btnSavePerson">儲存</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast 訊息 -->
+<div class="toast" id="toast"></div>
+
+<script>
+  window.USER_EMAIL = {{ user_email|tojson }};
+  window.PORTAL_URL = {{ portal_url|tojson }};
+</script>
+<script src="/static/people.js"></script>
+<script src="/static/people-form.js"></script>
 </body>
 </html>
