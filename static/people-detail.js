@@ -394,16 +394,33 @@
     // 點頭像 → 選檔
     $('#detailAvatar').addEventListener('click', () => fi.click());
 
-    // Cmd/Ctrl+V 貼上：限定回饋 widget modal 沒開時才接管
+    // Cmd/Ctrl+V 貼上圖片：根據焦點決定上傳到哪
+    // - 焦點在 textarea/input → 不接管（讓貼上文字）
+    // - 焦點在頭像或 hover 頭像 → 上傳當頭像
+    // - 其他 → 上傳到附件
     document.addEventListener('paste', (e) => {
       const fbModal = document.getElementById('fbw-modal');
       if (fbModal && fbModal.style.display !== 'none') return;
+      // 在文字輸入區貼文字 → 不接管
+      const tag = (document.activeElement && document.activeElement.tagName) || '';
+      if (tag === 'TEXTAREA' || tag === 'INPUT') return;
       const items = (e.clipboardData || {}).items || [];
+      const files = [];
       for (const it of items) {
         if (it.type && it.type.indexOf('image') !== -1) {
           const f = it.getAsFile();
-          if (f) { uploadAvatarFile(f); break; }
+          if (f) files.push(f);
         }
+      }
+      if (files.length === 0) return;
+      e.preventDefault();
+      // 優先：頭像被點過或 hover → 當頭像；否則進附件
+      const av = document.getElementById('detailAvatar');
+      const isAvatarFocus = av && av.matches(':hover');
+      if (isAvatarFocus && files.length === 1) {
+        uploadAvatarFile(files[0]);
+      } else {
+        uploadFiles(files);
       }
     });
   }
@@ -1225,6 +1242,33 @@
     await loadAll();
   }
 
+  // 從剪貼簿貼上（顯式按鈕）
+  async function pasteFromClipboard() {
+    try {
+      if (!navigator.clipboard || !navigator.clipboard.read) {
+        showToast('此瀏覽器不支援剪貼簿讀取（試 Chrome 或 Cmd+V 直接貼）', 'danger');
+        return;
+      }
+      const items = await navigator.clipboard.read();
+      const files = [];
+      for (const it of items) {
+        const imgType = it.types.find(t => t.startsWith('image/'));
+        if (imgType) {
+          const blob = await it.getType(imgType);
+          const ext = imgType.split('/')[1] || 'png';
+          files.push(new File([blob], `clipboard-${Date.now()}.${ext}`, { type: imgType }));
+        }
+      }
+      if (files.length === 0) {
+        showToast('剪貼簿沒有圖片', 'danger');
+        return;
+      }
+      uploadFiles(files);
+    } catch (e) {
+      showToast('讀取失敗：' + e.message + '（瀏覽器可能要求許可）', 'danger');
+    }
+  }
+
   // 拖曳上傳：bind 到 dropzone 與 detail-section
   function bindFileDropzone() {
     const dz = $('#fileDropZone');
@@ -1812,6 +1856,7 @@
       uploadFiles(e.target.files);
       e.target.value = '';
     });
+    $('#btnPasteFile')?.addEventListener('click', pasteFromClipboard);
     bindFileDropzone();
 
     // 錄音 Modal

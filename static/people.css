@@ -41,7 +41,7 @@ a { color: var(--primary); text-decoration: none; }
 input, select, textarea { font-family: inherit; font-size: inherit; color: inherit; }
 
 .desktop-only { display: inline-block; }
-.mobile-only { display: none; }
+.mobile-only { display: none !important; }  /* !important 蓋過 .btn-icon 的 inline-flex */
 
 /* ============================================
    Header
