@@ -106,7 +106,15 @@
   // ─── 篩選邏輯 ───
   function passesFilters(p) {
     // bucket
-    if (state.bucketFilter.length > 0 && !state.bucketFilter.includes(p.bucket)) return false;
+    if (state.bucketFilter.length > 0) {
+      // 「已成交」tab 特例：bucket=closed OR has_completed_deal（任一角色 status=成交/已成交）
+      const isClosedOnly = state.bucketFilter.length === 1 && state.bucketFilter[0] === 'closed';
+      if (isClosedOnly) {
+        if (p.bucket !== 'closed' && !p.has_completed_deal) return false;
+      } else if (!state.bucketFilter.includes(p.bucket)) {
+        return false;
+      }
+    }
     // role（任一勾選的角色都要有）
     if (state.roleFilter.length > 0) {
       const active = p.active_roles || [];
@@ -142,11 +150,18 @@
     const empty = $('#emptyState');
     let items = state.people.filter(passesFilters);
 
-    // 排序：last_contact_at 降冪（沒聯絡過放最後）
+    // 排序：sort_order 升冪優先（拖曳過的排前面），其餘按 last_contact_at 降冪
     items.sort((a, b) => {
+      const ao = a.sort_order;
+      const bo = b.sort_order;
+      const aHasOrder = ao != null;
+      const bHasOrder = bo != null;
+      if (aHasOrder && bHasOrder) return ao - bo;
+      if (aHasOrder) return -1;
+      if (bHasOrder) return 1;
       const da = a.last_contact_at || '';
-      const db = b.last_contact_at || '';
-      return db.localeCompare(da);
+      const dbb = b.last_contact_at || '';
+      return dbb.localeCompare(da);
     });
 
     if (items.length === 0) {
@@ -160,11 +175,14 @@
     grid.innerHTML = items.map(renderCard).join('');
     $('#statusBar').textContent = `顯示 ${items.length} 位（共 ${state.people.length}）`;
 
-    // 點卡片：跳到詳情頁
+    // 點卡片：跳到詳情頁；拖曳：reorder 或改 bucket
     $$('.person-card').forEach(card => {
-      card.addEventListener('click', () => {
-        window.location.href = '/people/' + card.dataset.id;
-      });
+      card.addEventListener('click', onCardClick);
+      card.addEventListener('dragstart', onCardDragStart);
+      card.addEventListener('dragover', onCardDragOver);
+      card.addEventListener('dragleave', onCardDragLeave);
+      card.addEventListener('drop', onCardDrop);
+      card.addEventListener('dragend', onCardDragEnd);
     });
   }
 
@@ -201,7 +219,7 @@
     })();
 
     return `
-      <div class="person-card ${cardClasses.slice(1).join(' ')}" data-id="${p.id}">
+      <div class="person-card ${cardClasses.slice(1).join(' ')}" data-id="${p.id}" draggable="true">
         <div class="card-top">
           <div class="avatar">${avatar}</div>
           <div class="card-name">
@@ -218,9 +236,128 @@
     `;
   }
 
+  // ═════════════════════════════════════════
+  //  拖曳：reorder 卡片 + 拖到 bucket tab 改分類
+  // ═════════════════════════════════════════
+  let _draggingId = null;
+  let _wasDragging = false;  // dragend 後短時間 true，避免 click 誤觸
+
+  function onCardClick(e) {
+    if (_wasDragging) { e.preventDefault(); return; }
+    window.location.href = '/people/' + e.currentTarget.dataset.id;
+  }
+
+  function onCardDragStart(e) {
+    _draggingId = e.currentTarget.dataset.id;
+    _wasDragging = false;
+    e.dataTransfer.effectAllowed = 'move';
+    try { e.dataTransfer.setData('text/plain', _draggingId); } catch (_) {}
+    e.currentTarget.classList.add('dragging');
+  }
+
+  function onCardDragOver(e) {
+    if (!_draggingId) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (e.currentTarget.dataset.id !== _draggingId) {
+      e.currentTarget.classList.add('drop-target');
+    }
+  }
+  function onCardDragLeave(e) {
+    e.currentTarget.classList.remove('drop-target');
+  }
+
+  function onCardDrop(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    e.currentTarget.classList.remove('drop-target');
+    const targetId = e.currentTarget.dataset.id;
+    if (!_draggingId || _draggingId === targetId) return;
+    reorderCard(_draggingId, targetId);
+  }
+
+  function onCardDragEnd(e) {
+    e.currentTarget.classList.remove('dragging');
+    $$('.drop-target').forEach(el => el.classList.remove('drop-target'));
+    _wasDragging = true;
+    setTimeout(() => { _wasDragging = false; }, 50);
+    _draggingId = null;
+  }
+
+  function onBucketDragOver(e) {
+    if (!_draggingId) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    e.currentTarget.classList.add('drop-target');
+  }
+  function onBucketDragLeave(e) {
+    e.currentTarget.classList.remove('drop-target');
+  }
+  function onBucketDrop(e) {
+    e.preventDefault();
+    e.currentTarget.classList.remove('drop-target');
+    if (!_draggingId) return;
+    // bucket-tab 的 data-bucket 可能是 "primary,normal"（進行中），取第一個
+    const buckets = e.currentTarget.dataset.bucket.split(',').filter(Boolean);
+    const targetBucket = buckets[0];
+    if (!targetBucket) return;
+    changeBucket(_draggingId, targetBucket);
+  }
+
+  async function reorderCard(draggedId, targetId) {
+    const visibleItems = state.people.filter(passesFilters);
+    const fromIdx = visibleItems.findIndex(x => x.id === draggedId);
+    const toIdx = visibleItems.findIndex(x => x.id === targetId);
+    if (fromIdx < 0 || toIdx < 0) return;
+    const [moved] = visibleItems.splice(fromIdx, 1);
+    visibleItems.splice(toIdx, 0, moved);
+    // 重新分配 sort_order（10, 20, 30...，留間隔便於將來插入）
+    const updates = visibleItems.map((it, idx) => ({ id: it.id, sort_order: (idx + 1) * 10 }));
+    // 樂觀更新本地
+    updates.forEach(u => {
+      const p = state.people.find(x => x.id === u.id);
+      if (p) p.sort_order = u.sort_order;
+    });
+    render();
+    try {
+      await api('POST', '/api/people/reorder', { items: updates });
+    } catch (e) {
+      showToast('排序儲存失敗：' + e.message, 'danger');
+    }
+  }
+
+  async function changeBucket(pid, newBucket) {
+    const p = state.people.find(x => x.id === pid);
+    if (!p || p.bucket === newBucket) return;
+    const oldBucket = p.bucket;
+    p.bucket = newBucket;  // 樂觀更新
+    render();
+    const labels = { primary: '⭐ 主力', normal: '一般', frozen: '🧊 冷凍', closed: '✅ 已成交', blacklist: '⛔ 黑名單' };
+    try {
+      // PUT 需要完整 payload（後端 _build_person_payload 會驗證 name）
+      await api('PUT', `/api/people/${pid}`, {
+        name: p.name,
+        display_name: p.display_name,
+        birthday: p.birthday,
+        gender: p.gender,
+        company: p.company,
+        contacts: p.contacts || [],
+        addresses: p.addresses || [],
+        bucket: newBucket,
+        warning: p.warning,
+        source: p.source || {},
+      });
+      showToast(`「${p.name}」→ ${labels[newBucket] || newBucket}`);
+    } catch (e) {
+      p.bucket = oldBucket;
+      render();
+      showToast('變更分類失敗：' + e.message, 'danger');
+    }
+  }
+
   // ─── 事件綁定 ───
   function bindEvents() {
-    // bucket tabs
+    // bucket tabs（點擊切換 + 接收 drop）
     $$('.bucket-tab').forEach(btn => {
       btn.addEventListener('click', () => {
         $$('.bucket-tab').forEach(b => b.classList.remove('active'));
@@ -228,6 +365,9 @@
         state.bucketFilter = btn.dataset.bucket.split(',').filter(Boolean);
         render();
       });
+      btn.addEventListener('dragover', onBucketDragOver);
+      btn.addEventListener('dragleave', onBucketDragLeave);
+      btn.addEventListener('drop', onBucketDrop);
     });
 
     // 角色 checkbox

@@ -163,10 +163,12 @@ def _build_person_payload(data, email, is_create=True):
     if is_create:
         payload["avatar_b64"] = None
         payload["active_roles"] = []  # 由 roles blueprint 維護
+        payload["has_completed_deal"] = False  # 由 roles blueprint 自動維護
         payload["relations"] = []     # 由 relations blueprint 維護
         payload["legacy_buyer_id"] = None
         payload["legacy_seller_id"] = None
         payload["last_contact_at"] = None
+        payload["sort_order"] = None  # 拖曳排序時設值；null 則 fallback 到 last_contact_at 排序
         payload["deleted_at"] = None
         payload["created_by"] = email
         payload["created_at"] = server_timestamp()
@@ -362,6 +364,48 @@ def update_person(pid):
         return jsonify(_doc_to_dict(ref.get()))
     except Exception as e:
         logging.warning("People update failed: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@bp.route("/api/people/reorder", methods=["POST"])
+def reorder_people():
+    """
+    批次更新多筆人的 sort_order（拖曳排序時呼叫）。
+    Body: { "items": [{"id": "<pid>", "sort_order": 1}, ...] }
+    """
+    email, err = require_user()
+    if err:
+        return jsonify({"error": err[0]}), err[1]
+    db = get_db()
+    if db is None:
+        return jsonify({"error": "Firestore 未初始化"}), 503
+
+    data = request.get_json(silent=True) or {}
+    items = data.get("items", [])
+    if not isinstance(items, list):
+        return jsonify({"error": "items 必須是陣列"}), 400
+
+    try:
+        batch = db.batch()
+        count = 0
+        for item in items:
+            pid = item.get("id")
+            so = item.get("sort_order")
+            if not pid or so is None:
+                continue
+            ref = db.collection("people").document(pid)
+            snap = ref.get()
+            if not snap.exists or (snap.to_dict() or {}).get("created_by") != email:
+                continue
+            batch.update(ref, {
+                "sort_order": float(so),
+                "updated_at": server_timestamp(),
+            })
+            count += 1
+        batch.commit()
+        return jsonify({"ok": True, "updated": count})
+    except Exception as e:
+        logging.warning("Reorder failed: %s", e)
         return jsonify({"error": str(e)}), 500
 
 

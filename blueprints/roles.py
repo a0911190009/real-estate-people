@@ -266,10 +266,26 @@ def _add_timeline(person_ref, email, type_, display_text, payload):
 
 
 def _refresh_active_roles(person_ref):
-    """重新計算 active_roles（以 archived_at=null 的 role doc 為準）。"""
+    """
+    重新計算 active_roles + has_completed_deal（以 archived_at=null 的 role doc 為準）。
+    has_completed_deal：任何 active role 的 status 為 '成交' 或 '已成交' → True
+    用於前端「已成交」tab 篩選。
+    """
     roles = list(person_ref.collection("roles").stream())
-    active = [r.id for r in roles if not (r.to_dict() or {}).get("archived_at")]
-    person_ref.update({"active_roles": active, "updated_at": server_timestamp()})
+    active = []
+    has_deal = False
+    for r in roles:
+        rd = r.to_dict() or {}
+        if rd.get("archived_at"):
+            continue
+        active.append(r.id)
+        if rd.get("status") in ("成交", "已成交"):
+            has_deal = True
+    person_ref.update({
+        "active_roles": active,
+        "has_completed_deal": has_deal,
+        "updated_at": server_timestamp(),
+    })
 
 
 # ══════════════════════════════════════════
@@ -420,7 +436,9 @@ def update_role(pid, role_type):
 
         role_payload["updated_at"] = server_timestamp()
         role_ref.set(role_payload, merge=True)
-        person_ref.update({"updated_at": server_timestamp()})
+
+        # 狀態變更會影響 has_completed_deal，需重算
+        _refresh_active_roles(person_ref)
 
         if old_status and new_status and old_status != new_status:
             _add_timeline(

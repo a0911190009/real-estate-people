@@ -265,6 +265,20 @@ input, select, textarea { font-family: inherit; font-size: inherit; color: inher
 .person-card.has-warning {
   border-left: 4px solid var(--danger);
 }
+.person-card.dragging {
+  opacity: 0.4;
+  cursor: grabbing;
+}
+.person-card.drop-target {
+  border-top: 3px solid var(--primary);
+  transform: translateY(2px);
+}
+.bucket-tab.drop-target {
+  background: var(--primary) !important;
+  color: white !important;
+  transform: scale(1.03);
+  box-shadow: var(--shadow);
+}
 .person-card.has-blocking {
   border-left: 4px solid var(--danger);
   background: var(--danger-bg);
