@@ -50,10 +50,13 @@ app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
 
 # ── Auth + Blueprints ──
 from auth import init_auth
-from blueprints import people_bp
+from blueprints import people_bp, roles_bp, contacts_bp, groups_bp
 
 init_auth(app)
 app.register_blueprint(people_bp)
+app.register_blueprint(roles_bp)
+app.register_blueprint(contacts_bp)
+app.register_blueprint(groups_bp)
 
 
 # ══════════════════════════════════════════
