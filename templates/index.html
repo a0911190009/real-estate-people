@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>人脈管理</title>
+  <link rel="stylesheet" href="/static/people.css">
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1>👥 人脈管理</h1>
+      <div class="user-info">
+        <span>{{ user_name }}</span>
+      </div>
+    </header>
+    <main>
+      <p style="padding:20px;color:#666">
+        Phase 1 開發中：列表頁 + 卡片頁將在下個 session 建立。<br>
+        目前 API 已可用：<code>POST /api/people</code>、<code>GET /api/people</code>。
+      </p>
+    </main>
+  </div>
+  <script>
+    window.USER_EMAIL = {{ user_email|tojson }};
+    window.PORTAL_URL = {{ portal_url|tojson }};
+  </script>
+</body>
+</html>
