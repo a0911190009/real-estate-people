@@ -39,7 +39,10 @@ def transcribe_audio(audio_bytes: bytes, mime_type: str):
             [{"mime_type": mime_type, "data": audio_bytes}, prompt],
             generation_config=cfg,
         )
-        data = json.loads(response.text)
+        data = _parse_lax_json(response.text)
+        if data is None:
+            logging.warning("transcribe_audio JSON parse failed; raw text head: %r", response.text[:200])
+            return None
         return {
             "transcript": data.get("transcript", "") or "",
             "summary": data.get("summary", "") or "",
@@ -47,6 +50,26 @@ def transcribe_audio(audio_bytes: bytes, mime_type: str):
         }
     except Exception as e:
         logging.warning("transcribe_audio failed: %s", e)
+        return None
+
+
+def _parse_lax_json(text: str):
+    """
+    寬鬆 JSON parse：
+    1. strict=False 接受字串內的控制字元（換行/tab 等 Gemini 常回傳）
+    2. 若仍失敗，嘗試把字串裡的真換行轉成 \\n 再試
+    """
+    if not text:
+        return None
+    try:
+        return json.loads(text, strict=False)
+    except json.JSONDecodeError:
+        pass
+    try:
+        # 把字串中的真換行字元跳脫掉再試
+        cleaned = text.replace("\r", "").replace("\t", " ")
+        return json.loads(cleaned, strict=False)
+    except Exception:
         return None
 
 
@@ -80,7 +103,10 @@ def transcribe_image_conversation(image_bytes: bytes, mime_type: str):
             [{"mime_type": mime_type, "data": image_bytes}, prompt],
             generation_config=cfg,
         )
-        data = json.loads(response.text)
+        data = _parse_lax_json(response.text)
+        if data is None:
+            logging.warning("transcribe_image_conversation JSON parse failed; head: %r", response.text[:200])
+            return None
         if not data.get("is_conversation"):
             return None
         return {

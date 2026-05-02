@@ -205,6 +205,45 @@ input, select, textarea { font-family: inherit; font-size: inherit; color: inher
 }
 .search:focus { border-color: var(--primary); }
 
+.show-mode {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--bg-elev);
+}
+.show-mode-btn {
+  background: transparent;
+  border: none;
+  padding: 6px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--text-muted);
+  border-right: 1px solid var(--border);
+  font-family: inherit;
+}
+.show-mode-btn:last-child { border-right: none; }
+.show-mode-btn:hover { background: var(--bg); }
+.show-mode-btn.active {
+  background: var(--primary);
+  color: white;
+}
+
+/* 群組卡片在主列表的特殊樣式 */
+.group-list-card {
+  background: linear-gradient(135deg, #fef9c3 0%, #fef3c7 100%);
+}
+.group-list-card .avatar.group-avatar {
+  background: white;
+  font-size: 24px;
+}
+.group-list-card.drop-target {
+  border-color: var(--success) !important;
+  border-width: 3px;
+  background: #dcfce7;
+  transform: scale(1.02);
+}
+
 .btn {
   background: var(--bg-elev);
   border: 1px solid var(--border);

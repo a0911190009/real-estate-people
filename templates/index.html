@@ -33,9 +33,10 @@
   <aside class="sidebar" id="sidebar">
     <!-- 收納分類 tabs（垂直） -->
     <div class="bucket-tabs">
-      <button class="bucket-tab active" data-bucket="primary,normal">📋 進行中</button>
+      <button class="bucket-tab active" data-bucket="primary,normal,watching">📋 進行中</button>
       <button class="bucket-tab" data-bucket="primary">⭐ 主力</button>
       <button class="bucket-tab" data-bucket="normal">一般</button>
+      <button class="bucket-tab" data-bucket="watching">👀 觀察</button>
       <button class="bucket-tab" data-bucket="frozen">🧊 冷凍</button>
       <button class="bucket-tab" data-bucket="closed">✅ 已成交</button>
       <button class="bucket-tab" data-bucket="blacklist">⛔ 黑名單</button>
@@ -72,6 +73,11 @@
   <main class="main">
     <div class="toolbar">
       <input type="search" id="searchInput" placeholder="🔍 搜尋姓名 / 電話 / 公司..." class="search">
+      <div class="show-mode" id="showModeGroup" title="顯示模式">
+        <button class="show-mode-btn active" data-mode="all">📦 全部</button>
+        <button class="show-mode-btn" data-mode="people">👤 只看人</button>
+        <button class="show-mode-btn" data-mode="groups">👨‍👩‍👧 只看群組</button>
+      </div>
       <button class="btn btn-primary" id="btnAddPerson">＋ 新增</button>
     </div>
 
@@ -137,6 +143,7 @@
         <div class="radio-group">
           <label class="radio"><input type="radio" name="bucket" value="primary"> ⭐ 主力</label>
           <label class="radio"><input type="radio" name="bucket" value="normal" checked> 一般</label>
+          <label class="radio"><input type="radio" name="bucket" value="watching"> 👀 觀察</label>
           <label class="radio"><input type="radio" name="bucket" value="frozen"> 🧊 冷凍</label>
           <label class="radio"><input type="radio" name="bucket" value="closed"> ✅ 已成交</label>
           <label class="radio"><input type="radio" name="bucket" value="blacklist"> ⛔ 黑名單</label>

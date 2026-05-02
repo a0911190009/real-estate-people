@@ -8,7 +8,8 @@
   // ─── 全域狀態 ───
   const state = {
     people: [],          // 從 API 取回的全部人脈（cache）
-    bucketFilter: ['primary', 'normal'],  // 預設「進行中」
+    groups: [],          // 群組 cache
+    bucketFilter: ['primary', 'normal', 'watching'],  // 預設「進行中」
     roleFilter: [],      // 角色篩選（多選）
     searchTerm: '',
     extraFilters: {
@@ -17,7 +18,8 @@
       incomplete: false,
       agentNoAuth: false,
     },
-    sellerRolesCache: {},  // person_id → seller role doc（為了判斷 agent_no_auth）
+    showMode: 'all',  // 'all' | 'people' | 'groups'
+    sellerRolesCache: {},
   };
 
   // ─── 角色標籤對應顯示 ───
@@ -88,20 +90,63 @@
   }
   window.api = api;
 
-  // ─── 載入人脈列表 ───
+  // ─── 載入人脈 + 群組 ───
   async function loadPeople() {
     $('#statusBar').textContent = '載入中...';
     try {
-      const data = await api('GET', '/api/people?limit=500');
-      state.people = data.items || [];
-      $('#statusBar').textContent = `共 ${state.people.length} 位人脈`;
-      // 預載入所有 seller roles（為了「代理人缺授權書」篩選）
-      // 採延遲載入：只在使用者勾選那個篩選時才查
+      const [pData, gData] = await Promise.all([
+        api('GET', '/api/people?limit=500'),
+        api('GET', '/api/groups').catch(() => ({ items: [] })),
+      ]);
+      state.people = pData.items || [];
+      state.groups = (gData.items || []).filter(g => !g.archived);
+      $('#statusBar').textContent = `共 ${state.people.length} 位人脈、${state.groups.length} 個群組`;
       render();
     } catch (e) {
       $('#statusBar').textContent = `載入失敗：${e.message}`;
       showToast('載入失敗：' + e.message, 'danger');
     }
+  }
+
+  // ─── 群組過濾（同 bucket / 搜尋）───
+  function passesGroupFilters(g) {
+    // 群組目前無 bucket 概念，沿用人的 bucket：「進行中」與「全部」顯示，其餘 tab 隱藏
+    const bucketsCurrent = state.bucketFilter;
+    const isProgressTab = bucketsCurrent.length >= 2;  // 進行中合併 tab
+    if (!isProgressTab) return false;  // 群組只在「進行中」tab 顯示（避免出現在已成交/黑名單等）
+    if (state.searchTerm) {
+      const q = state.searchTerm.toLowerCase();
+      const hay = ((g.name || '') + ' ' + (g.description || '')).toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    if (state.roleFilter.length > 0) return false;  // 群組沒有角色
+    if (state.extraFilters.warning || state.extraFilters.stale ||
+        state.extraFilters.incomplete || state.extraFilters.agentNoAuth) return false;
+    return true;
+  }
+
+  // ─── 群組卡片 ───
+  function renderGroupCard(g) {
+    const memberCount = (g.member_ids || []).length;
+    const typeLabel = g.type === 'permanent' ? '永久' : '一次性';
+    const typeCls = g.type === 'permanent' ? 'g-type-perm' : 'g-type-temp';
+    return `
+      <div class="person-card group-list-card" data-kind="group" data-id="${g.id}" draggable="true">
+        <div class="card-top">
+          <div class="avatar group-avatar">👨‍👩‍👧</div>
+          <div class="card-name">
+            <div class="card-name-title">${escapeHtml(g.name)}</div>
+            <div class="card-name-sub">👥 ${memberCount} 位成員</div>
+          </div>
+        </div>
+        <div class="card-pills">
+          <span class="g-type-pill ${typeCls}">${typeLabel}</span>
+        </div>
+        <div class="card-bottom">
+          <span class="last-contact-badge muted">群組</span>
+        </div>
+      </div>
+    `;
   }
 
   // ─── 篩選邏輯 ───
@@ -151,20 +196,24 @@
   function render() {
     const grid = $('#cardGrid');
     const empty = $('#emptyState');
-    let items = state.people.filter(passesFilters);
 
-    // 排序：sort_order 升冪優先（拖曳過的排前面），其餘按 last_contact_at 降冪
-    items.sort((a, b) => {
-      const ao = a.sort_order;
-      const bo = b.sort_order;
-      const aHasOrder = ao != null;
-      const bHasOrder = bo != null;
-      if (aHasOrder && bHasOrder) return ao - bo;
-      if (aHasOrder) return -1;
-      if (bHasOrder) return 1;
-      const da = a.last_contact_at || '';
-      const dbb = b.last_contact_at || '';
-      return dbb.localeCompare(da);
+    // 人 + 群組依 showMode 混合
+    const showPeople = state.showMode !== 'groups';
+    const showGroups = state.showMode !== 'people';
+    const peopleItems = showPeople ? state.people.filter(passesFilters) : [];
+    const groupItems = showGroups ? state.groups.filter(passesGroupFilters) : [];
+
+    // 統一排序鍵：sort_order 優先；否則 last_contact_at（人）或 updated_at（群組）
+    const sortKey = (it) => it.last_contact_at || it.updated_at || '';
+    const items = [
+      ...peopleItems.map(p => ({ kind: 'person', data: p })),
+      ...groupItems.map(g => ({ kind: 'group', data: g })),
+    ].sort((a, b) => {
+      const ao = a.data.sort_order, bo = b.data.sort_order;
+      if (ao != null && bo != null) return ao - bo;
+      if (ao != null) return -1;
+      if (bo != null) return 1;
+      return (sortKey(b.data) || '').localeCompare(sortKey(a.data) || '');
     });
 
     if (items.length === 0) {
@@ -175,10 +224,13 @@
     }
 
     empty.style.display = 'none';
-    grid.innerHTML = items.map(renderCard).join('');
-    $('#statusBar').textContent = `顯示 ${items.length} 位（共 ${state.people.length}）`;
+    grid.innerHTML = items.map(it => it.kind === 'group' ? renderGroupCard(it.data) : renderCard(it.data)).join('');
+    $('#statusBar').textContent =
+      `顯示 ${peopleItems.length} 位人脈` +
+      (showGroups ? ` + ${groupItems.length} 個群組` : '') +
+      `（共 ${state.people.length} / ${state.groups.length}）`;
 
-    // 點卡片：跳到詳情頁；拖曳：reorder 或改 bucket
+    // 點卡片：人 → 詳情頁、群組 → 群組頁；拖曳處理
     $$('.person-card').forEach(card => {
       card.addEventListener('click', onCardClick);
       card.addEventListener('dragstart', onCardDragStart);
@@ -186,7 +238,6 @@
       card.addEventListener('dragleave', onCardDragLeave);
       card.addEventListener('drop', onCardDrop);
       card.addEventListener('dragend', onCardDragEnd);
-      // 手機觸控長按拖曳
       card.addEventListener('touchstart', onCardTouchStart, { passive: false });
       card.addEventListener('touchmove', onCardTouchMove, { passive: false });
       card.addEventListener('touchend', onCardTouchEnd);
@@ -255,11 +306,19 @@
 
   function onCardClick(e) {
     if (_wasDragging) { e.preventDefault(); return; }
-    window.location.href = '/people/' + e.currentTarget.dataset.id;
+    const card = e.currentTarget;
+    if (card.dataset.kind === 'group') {
+      window.location.href = '/groups#' + card.dataset.id;
+    } else {
+      window.location.href = '/people/' + card.dataset.id;
+    }
   }
+
+  let _draggingKind = null;  // 'person' | 'group'
 
   function onCardDragStart(e) {
     _draggingId = e.currentTarget.dataset.id;
+    _draggingKind = e.currentTarget.dataset.kind || 'person';
     _wasDragging = false;
     e.dataTransfer.effectAllowed = 'move';
     try { e.dataTransfer.setData('text/plain', _draggingId); } catch (_) {}
@@ -283,8 +342,77 @@
     e.stopPropagation();
     e.currentTarget.classList.remove('drop-target');
     const targetId = e.currentTarget.dataset.id;
+    const targetKind = e.currentTarget.dataset.kind || 'person';
     if (!_draggingId || _draggingId === targetId) return;
+
+    // 拖人 → 群組：加成員
+    if (_draggingKind === 'person' && targetKind === 'group') {
+      addMemberToGroup(targetId, _draggingId);
+      return;
+    }
+    // 拖人 → 人：建群組
+    if (_draggingKind === 'person' && targetKind === 'person') {
+      const draggedPerson = state.people.find(p => p.id === _draggingId);
+      const targetPerson = state.people.find(p => p.id === targetId);
+      // 若使用者按住 Shift，則維持原本的 reorder 行為；否則優先建群組
+      if (e.shiftKey) {
+        reorderCard(_draggingId, targetId);
+      } else {
+        offerCreateGroup(draggedPerson, targetPerson);
+      }
+      return;
+    }
+    // 群組 → 群組 / 群組 → 人：純 reorder
     reorderCard(_draggingId, targetId);
+  }
+
+  async function addMemberToGroup(groupId, personId) {
+    const g = state.groups.find(x => x.id === groupId);
+    const p = state.people.find(x => x.id === personId);
+    if (!g || !p) return;
+    if ((g.member_ids || []).includes(personId)) {
+      showToast(`「${p.name}」已在此群組中`);
+      return;
+    }
+    try {
+      const updated = {
+        name: g.name,
+        type: g.type,
+        description: g.description || '',
+        member_ids: [...(g.member_ids || []), personId],
+      };
+      await api('PUT', `/api/groups/${groupId}`, updated);
+      showToast(`✓ 已把「${p.name}」加進群組「${g.name}」`);
+      await loadPeople();
+    } catch (e) {
+      showToast('加成員失敗：' + e.message, 'danger');
+    }
+  }
+
+  async function offerCreateGroup(personA, personB) {
+    if (!personA || !personB) return;
+    const defaultName = `${personA.name} × ${personB.name}`;
+    const name = prompt(
+      `要把這兩位放成新群組嗎？\n\n• ${personA.name}\n• ${personB.name}\n\n群組名稱（可改）：`,
+      defaultName
+    );
+    if (name === null) return;
+    if (!name.trim()) {
+      showToast('未取消，但群組名稱不能空白', 'danger');
+      return;
+    }
+    try {
+      const data = await api('POST', '/api/groups', {
+        name: name.trim(),
+        type: 'temporary',
+        description: '',
+        member_ids: [personA.id, personB.id],
+      });
+      showToast(`✓ 已建立群組「${data.name || name}」`);
+      await loadPeople();
+    } catch (e) {
+      showToast('建群組失敗：' + e.message, 'danger');
+    }
   }
 
   function onCardDragEnd(e) {
@@ -293,6 +421,7 @@
     _wasDragging = true;
     setTimeout(() => { _wasDragging = false; }, 50);
     _draggingId = null;
+    _draggingKind = null;
   }
 
   function onBucketDragOver(e) {
@@ -443,7 +572,7 @@
     const oldBucket = p.bucket;
     p.bucket = newBucket;  // 樂觀更新
     render();
-    const labels = { primary: '⭐ 主力', normal: '一般', frozen: '🧊 冷凍', closed: '✅ 已成交', blacklist: '⛔ 黑名單' };
+    const labels = { primary: '⭐ 主力', normal: '一般', watching: '👀 觀察', frozen: '🧊 冷凍', closed: '✅ 已成交', blacklist: '⛔ 黑名單' };
     try {
       // PUT 需要完整 payload（後端 _build_person_payload 會驗證 name）
       await api('PUT', `/api/people/${pid}`, {
@@ -534,6 +663,16 @@
     // 新增按鈕
     $('#btnAddPerson').addEventListener('click', () => {
       if (window.openPersonModal) window.openPersonModal(null);
+    });
+
+    // 顯示模式切換（全部 / 只看人 / 只看群組）
+    $$('.show-mode-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        $$('.show-mode-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        state.showMode = btn.dataset.mode;
+        render();
+      });
     });
 
     // 行動版 sidebar 切換

@@ -29,7 +29,7 @@ bp = Blueprint("people", __name__)
 
 # ─────────────── 常數 ───────────────
 
-VALID_BUCKETS = {"primary", "normal", "frozen", "closed", "blacklist"}
+VALID_BUCKETS = {"primary", "normal", "watching", "frozen", "closed", "blacklist"}
 VALID_CONTACT_TYPES = {"mobile", "home", "work", "line_id", "wechat", "email", "other"}
 VALID_ADDRESS_TYPES = {"home", "office", "other"}
 VALID_GENDERS = {"M", "F", "other"}

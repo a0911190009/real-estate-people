@@ -240,7 +240,7 @@
     if (p.zodiac) subParts.push('♌ ' + p.zodiac);
     if (p.company) subParts.push(p.company);
     if (p.bucket && p.bucket !== 'normal') {
-      const labels = { primary: '⭐ 主力', frozen: '🧊 冷凍', closed: '✅ 已成交', blacklist: '⛔ 黑名單' };
+      const labels = { primary: '⭐ 主力', watching: '👀 觀察', frozen: '🧊 冷凍', closed: '✅ 已成交', blacklist: '⛔ 黑名單' };
       subParts.push(labels[p.bucket] || p.bucket);
     }
     $('#detailSubline').textContent = subParts.join(' · ');
