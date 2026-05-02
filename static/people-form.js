@@ -219,7 +219,10 @@
         window.showToast('已新增');
       }
       closeModal();
-      await window.reloadPeople();
+      // 直接把新/更新 doc inject 進 state（避免 GET 偶發延遲沒撈到）
+      if (window.injectPerson && result) window.injectPerson(result);
+      // 同時背景重撈（保持資料完整：active_roles / has_completed_deal 等由 server 算）
+      window.reloadPeople();
     } catch (e) {
       window.showToast('儲存失敗：' + e.message, 'danger');
     } finally {

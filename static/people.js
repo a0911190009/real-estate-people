@@ -106,6 +106,85 @@
     }
   }
 
+  // ─── Sidebar 各篩選分類計數（人 + 群組總和）───
+  function updateSidebarCounts() {
+    const all = [...state.people, ...state.groups];
+    // bucket counts
+    const byBucket = {};
+    for (const p of all) {
+      const b = p.bucket || 'normal';
+      byBucket[b] = (byBucket[b] || 0) + 1;
+    }
+    // 已成交 tab 是複合：bucket=closed OR has_completed_deal
+    const closedCount = all.filter(p => p.bucket === 'closed' || p.has_completed_deal).length;
+    const progressCount = ['primary', 'normal', 'watching'].reduce((s, b) => s + (byBucket[b] || 0), 0);
+
+    $$('.bucket-tab').forEach(btn => {
+      const buckets = (btn.dataset.bucket || '').split(',').filter(Boolean);
+      let count;
+      if (buckets.length === 1 && buckets[0] === 'closed') {
+        count = closedCount;
+      } else if (buckets.length > 1) {
+        // 進行中合併 tab
+        count = progressCount;
+      } else if (buckets.length === 1) {
+        count = byBucket[buckets[0]] || 0;
+      } else {
+        count = 0;
+      }
+      // 移掉舊 count，加新的（用 span 才能套樣式）
+      const baseText = (btn.dataset.label || btn.textContent.replace(/\s*\(\d+\)\s*$/, '').trim());
+      if (!btn.dataset.label) btn.dataset.label = baseText;
+      btn.innerHTML = baseText + '<span class="count-suffix"> (' + count + ')</span>';
+    });
+
+    // 角色 count
+    const byRole = {};
+    for (const p of all) {
+      for (const r of (p.active_roles || [])) {
+        byRole[r] = (byRole[r] || 0) + 1;
+      }
+    }
+    $$('.chk input[data-role]').forEach(cb => {
+      const role = cb.dataset.role;
+      const count = byRole[role] || 0;
+      const lbl = cb.parentElement;
+      // 找標籤裡的 .count-suffix；沒有就建立
+      let suf = lbl.querySelector('.count-suffix');
+      if (!suf) {
+        suf = document.createElement('span');
+        suf.className = 'count-suffix';
+        lbl.appendChild(suf);
+      }
+      suf.textContent = ' (' + count + ')';
+    });
+
+    // 額外條件 count
+    const warningCount = all.filter(p => p.warning).length;
+    const staleCount = all.filter(p => {
+      const d = daysSince(p.last_contact_at);
+      return d != null && d >= 30;
+    }).length;
+    const incompleteCount = all.filter(p => (p.missing_required_count || 0) > 0).length;
+
+    setExtraCount('filterWarning', warningCount);
+    setExtraCount('filterStale', staleCount);
+    setExtraCount('filterIncomplete', incompleteCount);
+  }
+
+  function setExtraCount(checkboxId, count) {
+    const cb = document.getElementById(checkboxId);
+    if (!cb) return;
+    const lbl = cb.parentElement;
+    let suf = lbl.querySelector('.count-suffix');
+    if (!suf) {
+      suf = document.createElement('span');
+      suf.className = 'count-suffix';
+      lbl.appendChild(suf);
+    }
+    suf.textContent = ' (' + count + ')';
+  }
+
   // ─── 群組過濾（已是 person，bucket 一致）───
   function passesGroupFilters(g) {
     // bucket 跟人一致過濾
@@ -249,6 +328,9 @@
       if (bo != null) return 1;
       return (sortKey(b.data) || '').localeCompare(sortKey(a.data) || '');
     });
+
+    // 更新 sidebar 各分類計數（不受 showMode/搜尋/角色篩選影響，只看 bucket 分布）
+    updateSidebarCounts();
 
     if (items.length === 0) {
       grid.innerHTML = '';
@@ -779,6 +861,16 @@
   // ─── 提供給 form 呼叫的「重新載入」 ───
   window.reloadPeople = loadPeople;
   window.getStateForReferrer = () => state.people; // 為了在來源下拉填入介紹人選項
+
+  // 即時注入剛建立或更新的 doc 進 state（避免 Firestore 偶發 read-your-write 延遲）
+  window.injectPerson = (p) => {
+    if (!p || !p.id) return;
+    const arr = p.is_group ? state.groups : state.people;
+    const idx = arr.findIndex(x => x.id === p.id);
+    if (idx >= 0) arr[idx] = p;   // 更新
+    else arr.unshift(p);           // 新增 → 排前面
+    render();
+  };
 
   // ─── 啟動 ───
   document.addEventListener('DOMContentLoaded', () => {
