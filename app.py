@@ -84,6 +84,22 @@ def index():
     )
 
 
+@app.route("/people/<pid>")
+def detail_page(pid):
+    """卡片詳情頁。權限驗證在前端透過 /api/people/<id> 做。"""
+    PORTAL_URL = (os.environ.get("PORTAL_URL") or "").strip()
+    if not session.get("user_email"):
+        from flask import redirect
+        return redirect(PORTAL_URL or "/auth/portal-login")
+    return render_template(
+        "detail.html",
+        user_email=session.get("user_email", ""),
+        user_name=session.get("user_name", ""),
+        portal_url=PORTAL_URL,
+        person_id=pid,
+    )
+
+
 @app.route("/api/client-log", methods=["POST"])
 def api_client_log():
     """接收前端 JS 錯誤，記錄至 Cloud Logging。"""

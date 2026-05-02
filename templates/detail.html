@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>人脈詳情 — {{ user_name }}</title>
+  <link rel="icon" type="image/png" href="/static/favicon.png">
+  <link rel="stylesheet" href="/static/people.css">
+</head>
+<body class="detail-page">
+
+<header class="hdr">
+  <div class="hdr-left">
+    <a href="/" class="btn-icon" title="回列表">←</a>
+    <h1 id="detailTitle">載入中…</h1>
+  </div>
+  <div class="hdr-right">
+    <button class="btn-icon" id="btnEditDetail" title="編輯基本資料">✏️</button>
+    <button class="btn-icon" id="btnDeleteDetail" title="刪除" style="color:var(--danger)">🗑</button>
+  </div>
+</header>
+
+<main class="detail-main">
+
+  <!-- 警示語紅底（有警示語才顯示） -->
+  <div class="warning-bar" id="warningBar" style="display:none"></div>
+
+  <!-- Hero：頭像 + 名字 + 標籤 -->
+  <section class="detail-hero">
+    <div class="detail-avatar" id="detailAvatar">?</div>
+    <div class="detail-hero-text">
+      <h2 id="detailName"></h2>
+      <p id="detailSubline" class="muted"></p>
+      <div class="card-pills" id="detailPills"></div>
+    </div>
+  </section>
+
+  <!-- 行動裝置快速動作（電話 / LINE / 導航） -->
+  <section class="quick-actions" id="quickActions"></section>
+
+  <!-- 基本資訊卡 -->
+  <section class="detail-section">
+    <h3 class="section-title">📋 基本資訊</h3>
+    <div class="info-grid" id="infoGrid"></div>
+  </section>
+
+  <!-- 角色標籤 + 詳情 -->
+  <section class="detail-section">
+    <h3 class="section-title">🏷 角色標籤</h3>
+    <div class="role-toolbar">
+      <select id="roleTypeSelect">
+        <option value="">＋ 加角色...</option>
+        <option value="buyer">買方</option>
+        <option value="seller">賣方</option>
+        <option value="introducer">介紹人</option>
+        <option value="peer">同業</option>
+        <option value="landlord">房東</option>
+        <option value="owner_friend">屋主朋友</option>
+        <option value="friend">朋友</option>
+        <option value="relative">親戚</option>
+      </select>
+      <label class="chk inline-chk"><input type="checkbox" id="showArchivedRoles"> 顯示已封存</label>
+    </div>
+    <div id="rolesContainer"></div>
+  </section>
+
+  <!-- 來時路 -->
+  <section class="detail-section">
+    <h3 class="section-title">🕓 來時路</h3>
+    <div id="timelineList" class="timeline"></div>
+  </section>
+
+  <!-- 互動記事 -->
+  <section class="detail-section">
+    <h3 class="section-title">💬 互動記事</h3>
+    <div class="contact-input-row">
+      <select id="contactVia" class="contact-via">
+        <option value="phone">📞 電話</option>
+        <option value="line">💬 LINE</option>
+        <option value="meet">🤝 見面</option>
+        <option value="showing">🏠 帶看</option>
+        <option value="other">其他</option>
+      </select>
+      <textarea id="contactInput" rows="2" placeholder="記錄這次互動的內容..."></textarea>
+      <button class="btn btn-primary" id="btnAddContact">送出</button>
+    </div>
+    <div id="contactList"></div>
+  </section>
+
+</main>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+  window.PERSON_ID = {{ person_id|tojson }};
+  window.USER_EMAIL = {{ user_email|tojson }};
+  window.PORTAL_URL = {{ portal_url|tojson }};
+</script>
+<script src="/static/people-detail.js"></script>
+</body>
+</html>

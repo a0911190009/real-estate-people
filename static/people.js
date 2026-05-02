@@ -160,15 +160,10 @@
     grid.innerHTML = items.map(renderCard).join('');
     $('#statusBar').textContent = `顯示 ${items.length} 位（共 ${state.people.length}）`;
 
-    // 綁定卡片點擊（之後做卡片詳情頁）
+    // 點卡片：跳到詳情頁
     $$('.person-card').forEach(card => {
       card.addEventListener('click', () => {
-        const id = card.dataset.id;
-        // 暫時：點卡片就開啟編輯 modal
-        if (window.openPersonModal) {
-          const p = state.people.find(x => x.id === id);
-          window.openPersonModal(p);
-        }
+        window.location.href = '/people/' + card.dataset.id;
       });
     });
   }
@@ -304,6 +299,16 @@
   // ─── 啟動 ───
   document.addEventListener('DOMContentLoaded', () => {
     bindEvents();
-    loadPeople();
+    loadPeople().then(() => {
+      // 從詳情頁帶回的 ?edit=<id> 自動開啟編輯 modal
+      const params = new URLSearchParams(window.location.search);
+      const editId = params.get('edit');
+      if (editId && window.openPersonModal) {
+        const p = state.people.find(x => x.id === editId);
+        if (p) window.openPersonModal(p);
+        // 清掉 query 避免重整又開
+        history.replaceState({}, '', '/');
+      }
+    });
   });
 })();
