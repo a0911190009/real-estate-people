@@ -40,7 +40,14 @@ BUYER_STATUSES = {"洽談中", "持續看物件", "暫無需求", "保持連繫"
 SELLER_STATUSES = {"培養中", "已報價", "已簽委託", "已成交", "放棄"}
 URGENCY_LEVELS = {"high", "medium", "low"}
 
-PROPERTY_CATEGORIES = {"透天", "公寓", "農地", "建地", "店面", "別墅", "華廈", "套房", "其他"}
+PROPERTY_CATEGORIES = {
+    "透天", "別墅", "農舍",            # 獨棟類
+    "公寓", "華廈", "套房",            # 集合住宅
+    "建地", "農地",                   # 土地
+    "店面", "店住",                   # 商業/混合
+    "房屋",                           # 通用住宅（賣方常用）
+    "其他",
+}
 SELLER_IDENTITIES = {"sole_owner", "co_owner", "agent"}
 DECORATION_STATUSES = {"毛胚", "裝潢", "自住", "租出"}
 CURRENT_USES = {"self", "rent", "empty"}

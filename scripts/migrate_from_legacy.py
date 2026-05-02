@@ -72,7 +72,8 @@ def strip_b64_prefix(s):
 
 VALID_BUYER_STATUSES = {'洽談中', '持續看物件', '暫無需求', '保持連繫', '成交', '流失'}
 VALID_SELLER_STATUSES = {'培養中', '已報價', '已簽委託', '已成交', '放棄'}
-VALID_CATEGORIES = {'透天', '公寓', '農地', '建地', '店面', '別墅', '華廈', '套房', '其他'}
+VALID_CATEGORIES = {'透天', '別墅', '農舍', '公寓', '華廈', '套房',
+                    '建地', '農地', '店面', '店住', '房屋', '其他'}
 
 
 def build_buyer_role(b):
