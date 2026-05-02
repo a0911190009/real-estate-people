@@ -6,6 +6,7 @@
   <title>人脈管理</title>
   <link rel="icon" type="image/png" href="/static/favicon.png">
   <link rel="stylesheet" href="/static/people.css">
+  <link rel="stylesheet" href="{{ portal_url }}/static/feedback-widget.css">
 </head>
 <body>
 
@@ -198,5 +199,7 @@
 </script>
 <script src="/static/people.js"></script>
 <script src="/static/people-form.js"></script>
+<script src="{{ portal_url }}/static/feedback-widget.js"></script>
+<script>FeedbackWidget.init({ tool: 'people' });</script>
 </body>
 </html>
