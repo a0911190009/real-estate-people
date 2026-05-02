@@ -469,17 +469,19 @@
   }
 
   async function reorderCard(draggedId, targetId) {
-    const visibleItems = state.people.filter(passesFilters);
-    const fromIdx = visibleItems.findIndex(x => x.id === draggedId);
-    const toIdx = visibleItems.findIndex(x => x.id === targetId);
+    // 同類別才 reorder（人 vs 人，群組 vs 群組）
+    const allVisible = [
+      ...state.people.filter(passesFilters),
+      ...state.groups.filter(passesGroupFilters),
+    ];
+    const fromIdx = allVisible.findIndex(x => x.id === draggedId);
+    const toIdx = allVisible.findIndex(x => x.id === targetId);
     if (fromIdx < 0 || toIdx < 0) return;
-    const [moved] = visibleItems.splice(fromIdx, 1);
-    visibleItems.splice(toIdx, 0, moved);
-    // 重新分配 sort_order（10, 20, 30...，留間隔便於將來插入）
-    const updates = visibleItems.map((it, idx) => ({ id: it.id, sort_order: (idx + 1) * 10 }));
-    // 樂觀更新本地
+    const [moved] = allVisible.splice(fromIdx, 1);
+    allVisible.splice(toIdx, 0, moved);
+    const updates = allVisible.map((it, idx) => ({ id: it.id, sort_order: (idx + 1) * 10 }));
     updates.forEach(u => {
-      const p = state.people.find(x => x.id === u.id);
+      const p = state.people.find(x => x.id === u.id) || state.groups.find(x => x.id === u.id);
       if (p) p.sort_order = u.sort_order;
     });
     render();
@@ -591,7 +593,8 @@
   }
 
   async function changeBucket(pid, newBucket) {
-    const p = state.people.find(x => x.id === pid);
+    // 群組與人都在 person collection 裡，但前端分流；查兩處
+    const p = state.people.find(x => x.id === pid) || state.groups.find(x => x.id === pid);
     if (!p || p.bucket === newBucket) return;
     const oldBucket = p.bucket;
     p.bucket = newBucket;  // 樂觀更新
@@ -610,6 +613,10 @@
         bucket: newBucket,
         warning: p.warning,
         source: p.source || {},
+        // 群組欄位（PUT 也要保留，否則 _build_person_payload 預設清空）
+        is_group: !!p.is_group,
+        group_type: p.group_type,
+        members: p.members || [],
       });
       showToast(`「${p.name}」→ ${labels[newBucket] || newBucket}`);
     } catch (e) {
