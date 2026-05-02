@@ -28,7 +28,7 @@
 
   <!-- Hero：頭像 + 名字 + 標籤 -->
   <section class="detail-hero">
-    <div class="detail-avatar" id="detailAvatar" title="點擊換頭像 / Cmd+Shift+V 從剪貼簿貼上">?</div>
+    <div class="detail-avatar" id="detailAvatar" title="點擊換頭像 / 此區可見時 Cmd+V 自動換頭像">?</div>
     <div class="detail-hero-text">
       <h2 id="detailName"></h2>
       <p id="detailSubline" class="muted"></p>
@@ -103,7 +103,7 @@
     <input type="file" id="hiddenFileInput" multiple style="display:none">
     <div id="fileDropZone" class="file-dropzone">
       📥 拖檔到此 / 點 ＋ 選檔 / 點 🎤 錄音 / Cmd+V 貼上
-      <small>音訊檔（mp3/m4a/webm）會自動產生逐字稿與摘要 ・ 想換頭像用 <b>Cmd+Shift+V</b></small>
+      <small>音訊檔自動產生逐字稿與摘要 ・ Cmd+V 看到附件區就進附件、看到頭像區就換頭像</small>
     </div>
     <div id="uploadProgress" class="upload-progress-list"></div>
     <div id="filesList" class="files-grid"></div>
@@ -173,6 +173,29 @@
       <span style="flex:1"></span>
       <button class="btn" id="btnCancelRelModal">取消</button>
       <button class="btn btn-primary" id="btnSaveRelation">儲存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 貼上去處選擇器 (Cmd+V 兩區都可見時跳出) -->
+<div class="modal-bg" id="pasteTargetModal" style="display:none">
+  <div class="modal" style="max-width:340px">
+    <div class="modal-hdr">
+      <h2>📋 貼上到哪裡？</h2>
+      <button class="btn-icon" id="btnClosePasteModal" title="關閉">✕</button>
+    </div>
+    <div class="modal-body" style="text-align:center; padding:20px;">
+      <div style="display:flex; gap:12px; justify-content:center;">
+        <button class="btn paste-target-btn" id="btnPasteAvatar" type="button">
+          <div style="font-size:32px">🧑</div>
+          <div>設為頭像</div>
+        </button>
+        <button class="btn btn-primary paste-target-btn" id="btnPasteAttach" type="button">
+          <div style="font-size:32px">📎</div>
+          <div>加進附件</div>
+        </button>
+      </div>
+      <p class="muted" style="font-size:11px; margin: 12px 0 0;">Enter 選預設「附件」 ・ Esc 取消</p>
     </div>
   </div>
 </div>

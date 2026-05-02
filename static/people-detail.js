@@ -394,22 +394,26 @@
     // 點頭像 → 選檔
     $('#detailAvatar').addEventListener('click', () => fi.click());
 
-    // Cmd/Ctrl+V 貼上圖片：用 Shift 區分頭像 vs 附件
+    // Cmd/Ctrl+V 貼圖：依當前可見區決定去處
     // - 焦點在 textarea/input → 不接管（貼文字）
-    // - Cmd+Shift+V → 換頭像（限 1 張圖）
-    // - Cmd+V → 進附件
-    let _lastShiftDown = false;
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Shift') _lastShiftDown = true;
-    });
-    document.addEventListener('keyup', (e) => {
-      if (e.key === 'Shift') _lastShiftDown = false;
-    });
+    // - 只有頭像在視窗中 → 換頭像
+    // - 只有附件在視窗中 → 進附件
+    // - 兩個都在 → 跳 picker 問
+    // - 兩個都不在 → 預設附件
+    function isInViewport(el) {
+      if (!el || el.offsetParent === null) return false;
+      const r = el.getBoundingClientRect();
+      const vh = window.innerHeight || document.documentElement.clientHeight;
+      // 至少有 30% 高度可見才算在視窗中
+      const visibleHeight = Math.max(0, Math.min(r.bottom, vh) - Math.max(r.top, 0));
+      return visibleHeight >= Math.min(r.height, 30);
+    }
+
+    let _pendingPasteFiles = null;
 
     document.addEventListener('paste', (e) => {
       const fbModal = document.getElementById('fbw-modal');
       if (fbModal && fbModal.style.display !== 'none') return;
-      // 在文字輸入區貼文字 → 不接管
       const tag = (document.activeElement && document.activeElement.tagName) || '';
       if (tag === 'TEXTAREA' || tag === 'INPUT') return;
       const items = (e.clipboardData || {}).items || [];
@@ -422,11 +426,57 @@
       }
       if (files.length === 0) return;
       e.preventDefault();
-      // Shift 按住（Cmd+Shift+V）→ 換頭像
-      if (_lastShiftDown && files.length === 1) {
+
+      const heroEl = document.querySelector('.detail-hero');
+      const filesSection = document.querySelector('#filesList')?.closest('.detail-section')
+                         || document.querySelector('#fileDropZone')?.closest('.detail-section');
+      const heroVisible = isInViewport(heroEl);
+      const filesVisible = isInViewport(filesSection);
+
+      if (heroVisible && !filesVisible && files.length === 1) {
         uploadAvatarFile(files[0]);
-      } else {
+      } else if (filesVisible && !heroVisible) {
         uploadFiles(files);
+      } else if (heroVisible && filesVisible) {
+        // 兩者都在 → 跳 picker
+        _pendingPasteFiles = files;
+        $('#pasteTargetModal').style.display = 'flex';
+        setTimeout(() => $('#btnPasteAttach').focus(), 50);
+      } else {
+        // 兩者都不在（很罕見）→ 預設附件
+        uploadFiles(files);
+      }
+    });
+
+    // Picker 按鈕
+    $('#btnPasteAvatar')?.addEventListener('click', () => {
+      const fs = _pendingPasteFiles;
+      _pendingPasteFiles = null;
+      $('#pasteTargetModal').style.display = 'none';
+      if (fs && fs.length >= 1) uploadAvatarFile(fs[0]);
+    });
+    $('#btnPasteAttach')?.addEventListener('click', () => {
+      const fs = _pendingPasteFiles;
+      _pendingPasteFiles = null;
+      $('#pasteTargetModal').style.display = 'none';
+      if (fs && fs.length) uploadFiles(fs);
+    });
+    $('#btnClosePasteModal')?.addEventListener('click', () => {
+      _pendingPasteFiles = null;
+      $('#pasteTargetModal').style.display = 'none';
+    });
+    document.addEventListener('keydown', (e) => {
+      if ($('#pasteTargetModal').style.display === 'flex') {
+        if (e.key === 'Escape') {
+          _pendingPasteFiles = null;
+          $('#pasteTargetModal').style.display = 'none';
+        }
+      }
+    });
+    $('#pasteTargetModal').addEventListener('click', (e) => {
+      if (e.target.id === 'pasteTargetModal') {
+        _pendingPasteFiles = null;
+        $('#pasteTargetModal').style.display = 'none';
       }
     });
   }

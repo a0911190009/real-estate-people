@@ -947,6 +947,18 @@ input, select, textarea { font-family: inherit; font-size: inherit; color: inher
 .file-item:hover .file-rm { opacity: 1; }
 .file-rm:hover { background: var(--danger); }
 
+/* 貼上目標選擇按鈕 */
+.paste-target-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 16px 22px;
+  font-size: 14px;
+  cursor: pointer;
+  min-width: 110px;
+}
+
 /* 拖檔上傳區 */
 .file-dropzone {
   border: 2px dashed var(--border);
