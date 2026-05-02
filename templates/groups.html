@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>群組 — 人脈管理</title>
+  <link rel="icon" type="image/png" href="/static/favicon.png">
+  <link rel="stylesheet" href="/static/people.css">
+  <link rel="stylesheet" href="{{ portal_url }}/static/feedback-widget.css">
+</head>
+<body class="groups-page">
+
+<header class="hdr">
+  <div class="hdr-left">
+    <a href="/" class="btn-icon" title="回人脈列表">←</a>
+    <h1>👨‍👩‍👧 群組</h1>
+  </div>
+  <div class="hdr-right">
+    <button class="btn btn-primary" id="btnAddGroup">＋ 新群組</button>
+  </div>
+</header>
+
+<main class="groups-main">
+  <p class="muted" style="margin: 0 0 12px 0; font-size:13px">
+    把幾個人綁在一起：家庭（永久）、看屋小組（一次性）、合夥人...
+  </p>
+  <div id="groupsList" class="groups-list"></div>
+  <div id="emptyState" style="display:none; text-align:center; padding:60px 20px; color:var(--text-muted)">
+    <div style="font-size:48px; margin-bottom:12px">👨‍👩‍👧</div>
+    <p>尚無群組，點右上「＋ 新群組」建立第一個</p>
+  </div>
+</main>
+
+<!-- 群組編輯 Modal -->
+<div class="modal-bg" id="groupModal" style="display:none">
+  <div class="modal" style="max-width:520px">
+    <div class="modal-hdr">
+      <h2 id="grpModalTitle">新增群組</h2>
+      <button class="btn-icon" id="btnCloseGrpModal" title="關閉">✕</button>
+    </div>
+    <form id="groupForm" class="modal-body" autocomplete="off">
+      <input type="hidden" id="g_id">
+      <div class="form-row">
+        <label class="lbl">群組名稱 <span class="req">*</span></label>
+        <input type="text" id="g_name" required placeholder="例：陳家換屋小組 / 王先生看房小組">
+      </div>
+      <div class="form-row">
+        <label class="lbl">類型</label>
+        <div class="radio-group">
+          <label class="radio"><input type="radio" name="g_type" value="permanent"> 永久（家庭、合夥）</label>
+          <label class="radio"><input type="radio" name="g_type" value="temporary" checked> 一次性（單次交易）</label>
+        </div>
+      </div>
+      <div class="form-row">
+        <label class="lbl">描述（選填）</label>
+        <textarea id="g_description" rows="2" placeholder="目的、注意事項..."></textarea>
+      </div>
+      <div class="form-row">
+        <label class="lbl">成員</label>
+        <input type="text" id="g_member_search" placeholder="🔍 輸入姓名加成員..." autocomplete="off">
+        <div id="g_member_candidates" class="rel-candidates"></div>
+        <div id="g_members_box" class="g-members-box"></div>
+      </div>
+    </form>
+    <div class="modal-ftr">
+      <button class="btn btn-danger" id="btnDeleteGroup" style="display:none">🗑 封存</button>
+      <span style="flex:1"></span>
+      <button class="btn" id="btnCancelGrpModal">取消</button>
+      <button class="btn btn-primary" id="btnSaveGroup">儲存</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  window.USER_EMAIL = {{ user_email|tojson }};
+  window.PORTAL_URL = {{ portal_url|tojson }};
+</script>
+<script src="/static/groups.js"></script>
+<script src="{{ portal_url }}/static/feedback-widget.js"></script>
+<script>FeedbackWidget.init({ tool: 'people' });</script>
+</body>
+</html>

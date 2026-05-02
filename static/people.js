@@ -186,6 +186,11 @@
       card.addEventListener('dragleave', onCardDragLeave);
       card.addEventListener('drop', onCardDrop);
       card.addEventListener('dragend', onCardDragEnd);
+      // 手機觸控長按拖曳
+      card.addEventListener('touchstart', onCardTouchStart, { passive: false });
+      card.addEventListener('touchmove', onCardTouchMove, { passive: false });
+      card.addEventListener('touchend', onCardTouchEnd);
+      card.addEventListener('touchcancel', onCardTouchEnd);
     });
   }
 
@@ -330,6 +335,106 @@
     } catch (e) {
       showToast('排序儲存失敗：' + e.message, 'danger');
     }
+  }
+
+  // ─── 手機觸控長按拖曳（400ms 啟動，避免干擾捲動）───
+  let _touchTimer = null;
+  let _touchStartX = 0, _touchStartY = 0;
+  let _touchCard = null;
+  let _touchPreview = null;
+  const LONG_PRESS_MS = 400;
+
+  function onCardTouchStart(e) {
+    if (e.touches.length !== 1) return;
+    const t = e.touches[0];
+    _touchStartX = t.clientX;
+    _touchStartY = t.clientY;
+    _touchCard = e.currentTarget;
+    clearTimeout(_touchTimer);
+    _touchTimer = setTimeout(() => {
+      // 長按啟動拖曳
+      if (!_touchCard) return;
+      _draggingId = _touchCard.dataset.id;
+      _touchCard.classList.add('dragging');
+      // 建浮動預覽
+      _touchPreview = _touchCard.cloneNode(true);
+      _touchPreview.style.position = 'fixed';
+      _touchPreview.style.top = (_touchStartY - 40) + 'px';
+      _touchPreview.style.left = (_touchStartX - 60) + 'px';
+      _touchPreview.style.width = _touchCard.offsetWidth + 'px';
+      _touchPreview.style.opacity = '0.8';
+      _touchPreview.style.pointerEvents = 'none';
+      _touchPreview.style.zIndex = '9000';
+      _touchPreview.style.transform = 'scale(0.9)';
+      _touchPreview.classList.add('touch-preview');
+      document.body.appendChild(_touchPreview);
+      // 觸覺回饋
+      if (navigator.vibrate) navigator.vibrate(40);
+    }, LONG_PRESS_MS);
+  }
+
+  function onCardTouchMove(e) {
+    // 還沒長按 → 若大幅移動，取消長按計時器（讓使用者正常捲動）
+    if (!_draggingId) {
+      const t = e.touches[0];
+      const dx = Math.abs(t.clientX - _touchStartX);
+      const dy = Math.abs(t.clientY - _touchStartY);
+      if (dx > 10 || dy > 10) {
+        clearTimeout(_touchTimer);
+        _touchCard = null;
+      }
+      return;
+    }
+    // 已啟動拖曳：跟手指 + 偵測下方元素
+    e.preventDefault();
+    const t = e.touches[0];
+    if (_touchPreview) {
+      _touchPreview.style.top = (t.clientY - 40) + 'px';
+      _touchPreview.style.left = (t.clientX - 60) + 'px';
+    }
+    // 清除舊高亮
+    $$('.bucket-tab.drop-target, .person-card.drop-target').forEach(el => el.classList.remove('drop-target'));
+    // 偵測手指下元素
+    const elBelow = document.elementFromPoint(t.clientX, t.clientY);
+    if (!elBelow) return;
+    const bucketBtn = elBelow.closest('.bucket-tab');
+    const cardBelow = elBelow.closest('.person-card');
+    if (bucketBtn) {
+      bucketBtn.classList.add('drop-target');
+    } else if (cardBelow && cardBelow !== _touchCard && cardBelow.dataset.id !== _draggingId) {
+      cardBelow.classList.add('drop-target');
+    }
+  }
+
+  function onCardTouchEnd(e) {
+    clearTimeout(_touchTimer);
+    if (!_draggingId) {
+      _touchCard = null;
+      return;
+    }
+    // 偵測 drop target
+    const t = (e.changedTouches && e.changedTouches[0]) || null;
+    if (t) {
+      const elBelow = document.elementFromPoint(t.clientX, t.clientY);
+      if (elBelow) {
+        const bucketBtn = elBelow.closest('.bucket-tab');
+        const cardBelow = elBelow.closest('.person-card');
+        if (bucketBtn) {
+          const buckets = bucketBtn.dataset.bucket.split(',').filter(Boolean);
+          if (buckets[0]) changeBucket(_draggingId, buckets[0]);
+        } else if (cardBelow && cardBelow.dataset.id !== _draggingId) {
+          reorderCard(_draggingId, cardBelow.dataset.id);
+        }
+      }
+    }
+    // 清理
+    if (_touchPreview) { _touchPreview.remove(); _touchPreview = null; }
+    if (_touchCard) _touchCard.classList.remove('dragging');
+    $$('.drop-target').forEach(el => el.classList.remove('drop-target'));
+    _draggingId = null;
+    _touchCard = null;
+    _wasDragging = true;
+    setTimeout(() => { _wasDragging = false; }, 300);
   }
 
   async function changeBucket(pid, newBucket) {

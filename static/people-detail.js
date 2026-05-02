@@ -15,6 +15,9 @@
     showArchived: false,
     expandedRole: null, // 目前展開哪個 role_type
     introducerStats: null,
+    files: [],
+    allPeopleForPicker: [], // 加關聯時用的人脈下拉選項
+    selectedRelCandidate: null,
   };
 
   // ─── Role 顯示對應 ───
@@ -100,6 +103,11 @@
       } else {
         state.introducerStats = null;
       }
+      // 撈附件清單
+      try {
+        const fr = await api('GET', `/api/people/${PID}/files`);
+        state.files = fr.items || [];
+      } catch (_) { state.files = []; }
       renderAll();
     } catch (e) {
       $('#detailTitle').textContent = '載入失敗';
@@ -114,6 +122,8 @@
     renderQuickActions();
     renderInfoGrid();
     renderRoles();
+    renderRelations();
+    renderFiles();
     renderTimeline();
     renderContacts();
   }
@@ -749,6 +759,192 @@
   }
 
   // ═════════════════════════════════════════
+  //  關聯人（Modal）
+  // ═════════════════════════════════════════
+  const RELATION_LABELS = {
+    spouse: '配偶', parent: '父母', child: '子女', sibling: '兄弟姊妹',
+    friend: '朋友', partner: '合夥人',
+    introduced_by: '介紹我', introduced: '我介紹', other: '其他',
+  };
+
+  function renderRelations() {
+    const rels = state.person.relations || [];
+    const list = $('#relationsList');
+    if (rels.length === 0) {
+      list.innerHTML = '<p class="muted" style="margin:0">尚無關聯人</p>';
+      return;
+    }
+    list.innerHTML = rels.map(r => `
+      <div class="relation-row" data-pid="${escapeHtml(r.person_id)}" data-rel="${escapeHtml(r.relation)}">
+        <a href="/people/${escapeHtml(r.person_id)}" class="relation-name">👤 ${escapeHtml(r.note ? '— ' : '')}<span class="rel-display-name" data-id="${escapeHtml(r.person_id)}">…</span></a>
+        <span class="relation-type">${escapeHtml(RELATION_LABELS[r.relation] || r.relation)}</span>
+        <button type="button" class="btn-rm-rel" title="移除此關聯">✕</button>
+      </div>
+    `).join('');
+    // 每個關聯人 fetch 名字（avoid bulk fetch - 用 cache）
+    list.querySelectorAll('.rel-display-name').forEach(async el => {
+      const pid = el.dataset.id;
+      try {
+        const data = await api('GET', `/api/people/${pid}`);
+        el.textContent = data.name || pid;
+      } catch (_) { el.textContent = '(找不到)'; }
+    });
+    list.querySelectorAll('.btn-rm-rel').forEach(b => {
+      b.addEventListener('click', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const row = b.closest('.relation-row');
+        const otherPid = row.dataset.pid;
+        const rel = row.dataset.rel;
+        if (!confirm('移除此關聯？（雙方都會移除）')) return;
+        try {
+          await api('DELETE', `/api/people/${PID}/relations?person_id=${encodeURIComponent(otherPid)}&relation=${encodeURIComponent(rel)}`);
+          showToast('已移除關聯');
+          await loadAll();
+        } catch (e) {
+          showToast('移除失敗：' + e.message, 'danger');
+        }
+      });
+    });
+  }
+
+  async function openRelationModal() {
+    state.selectedRelCandidate = null;
+    $('#relSearch').value = '';
+    $('#relCandidates').innerHTML = '';
+    $('#relType').value = 'spouse';
+    $('#relNote').value = '';
+    // 載入所有人脈當候選（除去自己 + 已有關聯）
+    if (state.allPeopleForPicker.length === 0) {
+      try {
+        const data = await api('GET', '/api/people?limit=500');
+        state.allPeopleForPicker = data.items || [];
+      } catch (_) {}
+    }
+    $('#relationModal').style.display = 'flex';
+    setTimeout(() => $('#relSearch').focus(), 50);
+  }
+
+  function closeRelationModal() {
+    $('#relationModal').style.display = 'none';
+    state.selectedRelCandidate = null;
+  }
+
+  function filterRelCandidates(query) {
+    const existingPids = new Set((state.person.relations || []).map(r => r.person_id));
+    existingPids.add(PID);
+    const q = (query || '').trim().toLowerCase();
+    let list = state.allPeopleForPicker.filter(p => !existingPids.has(p.id));
+    if (q) {
+      list = list.filter(p => {
+        const hay = (p.name || '').toLowerCase()
+          + ' ' + (p.display_name || '').toLowerCase()
+          + ' ' + (p.contacts || []).map(c => c.value || '').join(' ').toLowerCase();
+        return hay.includes(q);
+      });
+    }
+    list = list.slice(0, 12);
+    const cont = $('#relCandidates');
+    if (list.length === 0) {
+      cont.innerHTML = '<div class="rel-cand-row" style="color:var(--text-muted)">沒有匹配的人脈</div>';
+      return;
+    }
+    cont.innerHTML = list.map(p => `
+      <div class="rel-cand-row" data-pid="${escapeHtml(p.id)}" data-name="${escapeHtml(p.name)}">
+        ${escapeHtml(p.name)}${p.display_name ? ` (${escapeHtml(p.display_name)})` : ''}
+      </div>
+    `).join('');
+    cont.querySelectorAll('.rel-cand-row[data-pid]').forEach(row => {
+      row.addEventListener('click', () => {
+        cont.querySelectorAll('.rel-cand-row').forEach(r => r.classList.remove('selected'));
+        row.classList.add('selected');
+        state.selectedRelCandidate = { id: row.dataset.pid, name: row.dataset.name };
+        $('#relSearch').value = row.dataset.name;
+      });
+    });
+  }
+
+  async function saveRelation() {
+    if (!state.selectedRelCandidate) {
+      showToast('請先選擇對象', 'danger');
+      return;
+    }
+    try {
+      await api('POST', `/api/people/${PID}/relations`, {
+        person_id: state.selectedRelCandidate.id,
+        relation: $('#relType').value,
+        note: $('#relNote').value.trim(),
+      });
+      showToast('已加關聯');
+      closeRelationModal();
+      await loadAll();
+    } catch (e) {
+      showToast('儲存失敗：' + e.message, 'danger');
+    }
+  }
+
+  // ═════════════════════════════════════════
+  //  附件（File upload + list）
+  // ═════════════════════════════════════════
+  function renderFiles() {
+    const list = $('#filesList');
+    if (state.files.length === 0) {
+      list.innerHTML = '<p class="muted" style="margin:0">尚無附件</p>';
+      return;
+    }
+    list.innerHTML = state.files.map(f => {
+      const isImg = (f.mime_type || '').startsWith('image/');
+      const isPdf = (f.mime_type || '') === 'application/pdf';
+      const url = `/people-file/${encodeURI(f.gcs_path)}`;
+      const icon = isPdf ? '📄' : (f.filename || '').match(/\.(doc|docx)$/i) ? '📝' : '📎';
+      const inner = isImg
+        ? `<img src="${url}" alt="${escapeHtml(f.filename || '')}" loading="lazy">`
+        : `<div class="file-item-icon">${icon}</div>`;
+      return `
+        <a href="${url}" target="_blank" class="file-item" data-id="${escapeHtml(f.id)}">
+          ${inner}
+          <div class="file-item-name">${escapeHtml(f.filename || '')}</div>
+          <button type="button" class="file-rm" title="刪除" data-id="${escapeHtml(f.id)}">✕</button>
+        </a>
+      `;
+    }).join('');
+    list.querySelectorAll('.file-rm').forEach(b => {
+      b.addEventListener('click', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const fid = b.dataset.id;
+        if (!confirm('確定刪除這個附件？')) return;
+        try {
+          await api('DELETE', `/api/people/${PID}/files/${fid}`);
+          showToast('附件已刪除');
+          await loadAll();
+        } catch (e) {
+          showToast('刪除失敗：' + e.message, 'danger');
+        }
+      });
+    });
+  }
+
+  async function uploadFiles(fileList) {
+    const files = Array.from(fileList);
+    if (files.length === 0) return;
+    const ok = [], err = [];
+    for (const f of files) {
+      const fd = new FormData();
+      fd.append('file', f, f.name);
+      try {
+        await api('POST', `/api/people/${PID}/files`, fd);
+        ok.push(f.name);
+      } catch (e) {
+        err.push(`${f.name}: ${e.message}`);
+      }
+    }
+    showToast(`上傳完成 ${ok.length} / ${files.length}` + (err.length ? '，部分失敗' : ''),
+              err.length ? 'danger' : null);
+    await loadAll();
+  }
+
+  // ═════════════════════════════════════════
   //  Timeline
   // ═════════════════════════════════════════
 
@@ -864,6 +1060,24 @@
         e.preventDefault();
         addContact();
       }
+    });
+
+    // 關聯人 Modal
+    $('#btnAddRelation').addEventListener('click', openRelationModal);
+    $('#btnCloseRelModal').addEventListener('click', closeRelationModal);
+    $('#btnCancelRelModal').addEventListener('click', closeRelationModal);
+    $('#btnSaveRelation').addEventListener('click', saveRelation);
+    $('#relSearch').addEventListener('input', (e) => filterRelCandidates(e.target.value));
+    $('#relSearch').addEventListener('focus', (e) => filterRelCandidates(e.target.value));
+    $('#relationModal').addEventListener('click', (e) => {
+      if (e.target.id === 'relationModal') closeRelationModal();
+    });
+
+    // 附件上傳
+    $('#btnAddFile').addEventListener('click', () => $('#hiddenFileInput').click());
+    $('#hiddenFileInput').addEventListener('change', (e) => {
+      uploadFiles(e.target.files);
+      e.target.value = '';
     });
 
     loadAll();

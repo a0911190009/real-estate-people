@@ -542,6 +542,14 @@ def upload_file(pid):
         ref.collection("files").document(file_id).set(meta)
         ref.update({"updated_at": server_timestamp()})
 
+        ref.collection("timeline").add({
+            "type": "file_uploaded",
+            "display_text": f"上傳附件：{f.filename}",
+            "payload": {"filename": f.filename, "file_id": file_id},
+            "occurred_at": server_timestamp(),
+            "created_by": email,
+        })
+
         # 把 timestamp 轉字串才能 jsonify
         meta_out = dict(meta)
         meta_out["uploaded_at"] = _now_utc().isoformat()
@@ -746,6 +754,24 @@ def add_relation(pid):
 
         a_ref.update({"relations": a_rels, "updated_at": server_timestamp()})
         b_ref.update({"relations": b_rels, "updated_at": server_timestamp()})
+
+        # Timeline 事件（雙向各寫一條）
+        b_name = b_dict.get("name", "")
+        a_name = a_dict.get("name", "")
+        a_ref.collection("timeline").add({
+            "type": "relation_added",
+            "display_text": f"加關聯：{relation} ↔ {b_name}",
+            "payload": {"with": other_id, "relation": relation},
+            "occurred_at": server_timestamp(),
+            "created_by": email,
+        })
+        b_ref.collection("timeline").add({
+            "type": "relation_added",
+            "display_text": f"加關聯：{dual_relation} ↔ {a_name}",
+            "payload": {"with": pid, "relation": dual_relation},
+            "occurred_at": server_timestamp(),
+            "created_by": email,
+        })
 
         return jsonify({"ok": True, "relations": a_rels})
     except Exception as e:

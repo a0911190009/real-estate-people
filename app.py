@@ -101,6 +101,21 @@ def detail_page(pid):
     )
 
 
+@app.route("/groups")
+def groups_page():
+    """群組頁：把幾個人綁在一起（家庭、合夥、看屋小組）"""
+    PORTAL_URL = (os.environ.get("PORTAL_URL") or "").strip()
+    if not session.get("user_email"):
+        from flask import redirect
+        return redirect(PORTAL_URL or "/auth/portal-login")
+    return render_template(
+        "groups.html",
+        user_email=session.get("user_email", ""),
+        user_name=session.get("user_name", ""),
+        portal_url=PORTAL_URL,
+    )
+
+
 @app.route("/api/client-log", methods=["POST"])
 def api_client_log():
     """接收前端 JS 錯誤，記錄至 Cloud Logging。"""

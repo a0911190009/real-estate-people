@@ -71,6 +71,25 @@
     <div id="timelineList" class="timeline"></div>
   </section>
 
+  <!-- 關聯人 -->
+  <section class="detail-section">
+    <h3 class="section-title">
+      👥 關聯人
+      <button class="btn-tiny" id="btnAddRelation" type="button">＋ 加關聯</button>
+    </h3>
+    <div id="relationsList"></div>
+  </section>
+
+  <!-- 附件 -->
+  <section class="detail-section">
+    <h3 class="section-title">
+      📎 附件
+      <button class="btn-tiny" id="btnAddFile" type="button">＋ 上傳檔案</button>
+    </h3>
+    <input type="file" id="hiddenFileInput" multiple style="display:none">
+    <div id="filesList" class="files-grid"></div>
+  </section>
+
   <!-- 互動記事 -->
   <section class="detail-section">
     <h3 class="section-title">💬 互動記事</h3>
@@ -89,6 +108,46 @@
   </section>
 
 </main>
+
+<!-- 關聯 Modal -->
+<div class="modal-bg" id="relationModal" style="display:none">
+  <div class="modal" style="max-width:440px">
+    <div class="modal-hdr">
+      <h2>加關聯人</h2>
+      <button class="btn-icon" id="btnCloseRelModal" title="關閉">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <label class="lbl">選擇對象</label>
+        <input type="text" id="relSearch" placeholder="🔍 輸入姓名搜尋..." autocomplete="off">
+        <div id="relCandidates" class="rel-candidates"></div>
+      </div>
+      <div class="form-row">
+        <label class="lbl">關係</label>
+        <select id="relType">
+          <option value="spouse">配偶</option>
+          <option value="parent">父母</option>
+          <option value="child">子女</option>
+          <option value="sibling">兄弟姊妹</option>
+          <option value="friend">朋友</option>
+          <option value="partner">合夥人</option>
+          <option value="introduced_by">介紹我（對方介紹這個人給我）</option>
+          <option value="introduced">我介紹（這個人介紹了對方）</option>
+          <option value="other">其他</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label class="lbl">備註（選填）</label>
+        <input type="text" id="relNote" placeholder="例：陳先生的姊夫">
+      </div>
+    </div>
+    <div class="modal-ftr">
+      <span style="flex:1"></span>
+      <button class="btn" id="btnCancelRelModal">取消</button>
+      <button class="btn btn-primary" id="btnSaveRelation">儲存</button>
+    </div>
+  </div>
+</div>
 
 <!-- Toast -->
 <div class="toast" id="toast"></div>
