@@ -7,6 +7,7 @@
   <link rel="icon" type="image/png" href="/static/favicon.png">
   <link rel="stylesheet" href="/static/people.css">
   <link rel="stylesheet" href="{{ portal_url }}/static/feedback-widget.css">
+  <link rel="stylesheet" href="{{ portal_url }}/static/upload-menu.css">
 </head>
 <body class="detail-page">
 
@@ -227,6 +228,7 @@
   window.USER_EMAIL = {{ user_email|tojson }};
   window.PORTAL_URL = {{ portal_url|tojson }};
 </script>
+<script src="{{ portal_url }}/static/upload-menu.js"></script>
 <script src="/static/people-detail.js"></script>
 <script src="{{ portal_url }}/static/feedback-widget.js"></script>
 <script>FeedbackWidget.init({ tool: 'people' });</script>

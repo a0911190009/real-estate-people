@@ -1915,6 +1915,21 @@
     $('#btnPasteFile')?.addEventListener('click', pasteFromClipboard);
     bindFileDropzone();
 
+    // 右鍵 / 長按選單：頭像 + 附件區
+    if (window.UploadMenu) {
+      window.UploadMenu.attach($('#detailAvatar'), {
+        paste: true, file: true, camera: true,
+        accept: 'image/*', multiple: false,
+        onFiles: (files) => { if (files[0]) uploadAvatarFile(files[0]); },
+      });
+      window.UploadMenu.attach($('#fileDropZone'), {
+        paste: true, file: true, camera: true, audio: true,
+        accept: '*/*', multiple: true,
+        onFiles: (files) => uploadFiles(files),
+        onAudio: () => openRecordModal(),
+      });
+    }
+
     // 錄音 Modal
     $('#btnRecordAudio').addEventListener('click', openRecordModal);
     $('#btnCloseRecModal').addEventListener('click', closeRecordModal);
