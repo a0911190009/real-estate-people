@@ -527,6 +527,66 @@
       const cfg = ROLE_DISPLAY[r] || { label: r, cls: 'role-other' };
       return `<span class="role-pill ${cfg.cls}">${escapeHtml(cfg.label)}</span>`;
     }).join('');
+
+    // 卡片顏色選擇器（群組不顯示）
+    if (!p.is_group) {
+      renderColorPicker(p.card_color || '');
+    } else {
+      $('#colorPickerRow').style.display = 'none';
+    }
+  }
+
+  // ═════════════════════════════════════════
+  //  卡片顏色選擇器
+  // ═════════════════════════════════════════
+  const CARD_COLORS = [
+    { color: '',         name: '預設' },
+    { color: '#ffd6d6',  name: '淡玫瑰' },
+    { color: '#ffdfc8',  name: '淡桃' },
+    { color: '#fff3c4',  name: '淡黃' },
+    { color: '#d6f5d6',  name: '淡綠' },
+    { color: '#c8f0ec',  name: '淡薄荷' },
+    { color: '#c8e8f8',  name: '淡水藍' },
+    { color: '#d4d8f8',  name: '淡藍紫' },
+    { color: '#ead5f8',  name: '淡紫' },
+    { color: '#f8d5ec',  name: '淡粉紫' },
+    { color: '#ede0d4',  name: '奶茶' },
+    { color: '#e8e8e8',  name: '淡灰' },
+  ];
+
+  function renderColorPicker(currentColor) {
+    const row = $('#colorPickerRow');
+    const dots = $('#colorDots');
+    if (!row || !dots) return;
+    row.style.display = '';
+    dots.innerHTML = CARD_COLORS.map(c => {
+      const selected = (c.color || '') === (currentColor || '') ? 'selected' : '';
+      const bg = c.color ? `background:${c.color};` : 'background:transparent;border:1px dashed var(--border);';
+      return `<button type="button" class="color-dot ${selected}" data-color="${c.color}" title="${c.name}" style="${bg}"></button>`;
+    }).join('');
+    dots.querySelectorAll('.color-dot').forEach(btn => {
+      btn.addEventListener('click', () => saveCardColor(btn.dataset.color || ''));
+    });
+  }
+
+  async function saveCardColor(color) {
+    try {
+      const r = await fetch(`/api/people/${PID}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ card_color: color || '' }),
+      });
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        throw new Error(d.error || `HTTP ${r.status}`);
+      }
+      state.person.card_color = color || null;
+      // 更新 UI：選中標記 + 即時套用到 hero（讓使用者馬上看到）
+      renderColorPicker(state.person.card_color || '');
+      showToast(color ? '✅ 已套用顏色' : '已移除顏色', 'success');
+    } catch (e) {
+      showToast('儲存失敗：' + e.message, 'danger');
+    }
   }
 
   // ═════════════════════════════════════════

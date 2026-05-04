@@ -213,24 +213,23 @@
     return true;
   }
 
-  // ─── 群組卡片 ───
+  // ─── 群組卡片：資料夾造型，A+B+C+D 組合 ───
+  // A: 紫色漸層 + 粗左邊框  B: 整行佔滿  C: 上方「群組」tab  D: 資料夾形狀
   function renderGroupCard(g) {
     const memberCount = (g.members || []).length;
     const typeLabel = g.group_type === 'permanent' ? '永久' : '一次性';
-    const typeCls = g.group_type === 'permanent' ? 'g-type-perm' : 'g-type-temp';
-    // 取前 3 位成員頭像合成
-    const memberAvatars = (g.members || []).slice(0, 3).map(mid => {
+
+    // 成員姓名橫排（取代頭像疊圖）
+    const memberNames = (g.members || []).map(mid => {
       const m = state.people.find(p => p.id === mid);
-      if (!m) return '<div class="g-mini-avatar">?</div>';
-      const init = (m.name || '?').charAt(0);
-      const av = m.avatar_b64
-        ? `<img src="${m.avatar_b64.startsWith('data:') ? m.avatar_b64 : 'data:image/jpeg;base64,'+m.avatar_b64}">`
-        : escapeHtml(init);
-      return `<div class="g-mini-avatar">${av}</div>`;
-    }).join('');
+      return m ? escapeHtml(m.name || '?') : '?';
+    });
+    const namesPreview = memberNames.length
+      ? memberNames.slice(0, 8).join('、') + (memberNames.length > 8 ? `... +${memberNames.length - 8}` : '')
+      : '（尚無成員）';
 
     const days = daysSince(g.last_contact_at);
-    const cardClasses = ['person-card', 'group-list-card'];
+    const cardClasses = ['person-card', 'group-list-card', 'folder-card'];
     if (g.warning) cardClasses.push('has-warning');
     if (days != null && days >= 30) cardClasses.push('is-stale-red');
     else if (days != null && days >= 14) cardClasses.push('is-stale-yellow');
@@ -245,18 +244,18 @@
 
     return `
       <div class="${cardClasses.join(' ')}" data-kind="group" data-id="${g.id}" draggable="true">
-        <div class="card-top">
-          <div class="avatar group-avatar">
-            <div class="g-mini-stack">${memberAvatars || '👨‍👩‍👧'}</div>
+        <div class="folder-tab">👥 群組 · ${typeLabel}</div>
+        <div class="folder-body">
+          <div class="folder-name-block">
+            <div class="folder-name">${escapeHtml(g.name)}</div>
+            <div class="folder-members" title="${escapeHtml(memberNames.join('、'))}">
+              ${memberCount} 位成員：${namesPreview}
+            </div>
           </div>
-          <div class="card-name">
-            <div class="card-name-title">👥 ${escapeHtml(g.name)}</div>
-            <div class="card-name-sub">${memberCount} 位成員 · ${typeLabel}</div>
+          <div class="folder-bottom">
+            ${lastContactLabel}
+            ${g.warning ? `<span class="warning-icon" title="${escapeHtml(g.warning)}">⚠️</span>` : ''}
           </div>
-        </div>
-        <div class="card-bottom">
-          ${lastContactLabel}
-          ${g.warning ? `<span class="warning-icon" title="${escapeHtml(g.warning)}">⚠️</span>` : ''}
         </div>
       </div>
     `;
@@ -393,8 +392,11 @@
       return parts.join(' · ');
     })();
 
+    // 卡片底色（hex 色碼，例 #d6f5d6）
+    const colorStyle = p.card_color ? ` style="background:${escapeHtml(p.card_color)};"` : '';
+
     return `
-      <div class="person-card ${cardClasses.slice(1).join(' ')}" data-id="${p.id}" draggable="true">
+      <div class="person-card ${cardClasses.slice(1).join(' ')}" data-id="${p.id}" draggable="true"${colorStyle}>
         <div class="card-top">
           <div class="avatar">${avatar}</div>
           <div class="card-name">

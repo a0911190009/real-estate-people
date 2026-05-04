@@ -155,6 +155,10 @@ def _build_person_payload(data, email, is_create=True):
     members_raw = data.get("members", []) or []
     members = [str(m).strip() for m in members_raw if str(m).strip()] if isinstance(members_raw, list) else []
 
+    # card_color：6 碼 hex（含 #），空字串視為無色
+    card_color_raw = str(data.get("card_color", "") or "").strip()
+    card_color = card_color_raw if card_color_raw.startswith("#") and 4 <= len(card_color_raw) <= 9 else None
+
     payload = {
         "name": name,
         "display_name": str(data.get("display_name", "") or "").strip() or None,
@@ -170,6 +174,9 @@ def _build_person_payload(data, email, is_create=True):
         "is_group": is_group,
         "group_type": group_type if is_group else None,
         "members": members if is_group else [],
+        "card_color": card_color,
+        "note": str(data.get("note", "") or "").strip() or None,
+        "phone": str(data.get("phone", "") or "").strip() or None,
         "updated_at": server_timestamp(),
     }
 
@@ -323,6 +330,49 @@ def get_person(pid):
         return jsonify(d)
     except Exception as e:
         logging.warning("People get failed: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@bp.route("/api/people/<pid>", methods=["PATCH"])
+def patch_person(pid):
+    """部分更新主檔欄位（白名單），不需重新驗證整份 payload。
+    可改：card_color / note / phone / warning / bucket
+    """
+    PATCH_FIELDS = {"card_color", "note", "phone", "warning", "bucket"}
+    email, err = require_user()
+    if err:
+        return jsonify({"error": err[0]}), err[1]
+    db = get_db()
+    if db is None:
+        return jsonify({"error": "Firestore 未初始化"}), 503
+
+    data = request.get_json(silent=True) or {}
+    update_data = {}
+    for k, v in data.items():
+        if k not in PATCH_FIELDS:
+            continue
+        if k == "card_color":
+            v = str(v or "").strip()
+            update_data[k] = v if v.startswith("#") and 4 <= len(v) <= 9 else None
+        elif k == "bucket":
+            v = str(v or "").strip()
+            update_data[k] = v if v in VALID_BUCKETS else "normal"
+        else:
+            update_data[k] = str(v or "").strip() or None
+
+    if not update_data:
+        return jsonify({"error": "沒有可更新的欄位"}), 400
+
+    try:
+        ref = db.collection("people").document(pid)
+        snap = ref.get()
+        if not snap.exists or (snap.to_dict() or {}).get("created_by") != email:
+            return jsonify({"error": "找不到此人"}), 404
+        update_data["updated_at"] = server_timestamp()
+        ref.update(update_data)
+        return jsonify(_doc_to_dict(ref.get()))
+    except Exception as e:
+        logging.warning("Patch person failed: %s", e)
         return jsonify({"error": str(e)}), 500
 
 

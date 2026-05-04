@@ -106,6 +106,9 @@ input, select, textarea { font-family: inherit; font-size: inherit; color: inher
 .main {
   padding: 16px 24px;
   overflow-x: hidden;
+  /* 1fr 預設 min-width: auto，會被內部卡片撐到比視窗寬。
+     必須 min-width: 0 讓網格只能用實際可用寬度，auto-fill 才會正確收欄數。 */
+  min-width: 0;
 }
 
 /* ============================================
@@ -240,8 +243,8 @@ input, select, textarea { font-family: inherit; font-size: inherit; color: inher
   color: white;
 }
 
-/* 群組卡片在主列表的特殊樣式 */
-.group-list-card {
+/* 群組卡片在主列表的特殊樣式（舊版備用，新版見 .folder-card） */
+.group-list-card:not(.folder-card) {
   background: linear-gradient(135deg, #fef9c3 0%, #fef3c7 100%);
 }
 .group-list-card .avatar.group-avatar {
@@ -249,6 +252,132 @@ input, select, textarea { font-family: inherit; font-size: inherit; color: inher
   font-size: 24px;
   overflow: visible;
   position: relative;
+}
+
+/* ============================================
+   群組卡：資料夾造型（A+B+C+D 合體）
+   A：紫色漸層 + 粗左邊框
+   B：grid-column: 1/-1 整行佔滿
+   C：上方「群組」tab（彩色帶）
+   D：資料夾形狀（左上角 tab + 主體）
+============================================ */
+.folder-card {
+  grid-column: 1 / -1;             /* B：跨整行 */
+  background: linear-gradient(135deg, #ede9fe 0%, #ddd6fe 100%) !important;
+  border: 1px solid #c4b5fd;
+  border-left: 4px solid #7c3aed;  /* A：粗紫色左邊框 */
+  border-top-left-radius: 0;       /* D：左上配合 tab 直角 */
+  padding: 0;                      /* 由內部 tab/body 控制 */
+  display: block;
+  position: relative;
+  overflow: hidden;
+}
+.folder-card:hover {
+  border-color: #c4b5fd;
+  border-left-color: #6d28d9;
+  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.15);
+}
+
+/* C+D：上方資料夾 tab */
+.folder-tab {
+  display: inline-block;
+  background: #7c3aed;
+  color: white;
+  padding: 4px 16px 5px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  border-bottom-right-radius: 10px;
+  position: relative;
+  z-index: 1;
+}
+
+.folder-body {
+  padding: 8px 16px 12px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.folder-name-block {
+  flex: 1;
+  min-width: 0;
+}
+
+.folder-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: #4c1d95;
+  margin-bottom: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.folder-members {
+  font-size: 12.5px;
+  color: #6b21a8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.folder-bottom {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.folder-card.drop-target {
+  border-color: var(--success) !important;
+  border-left-color: var(--success) !important;
+  background: linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%) !important;
+}
+
+@media (max-width: 768px) {
+  .folder-body { padding: 8px 12px 10px; gap: 8px; }
+  .folder-tab { padding: 3px 12px 4px; font-size: 10px; }
+}
+
+/* ============================================
+   卡片顏色選擇器（詳情頁）
+============================================ */
+.color-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+.color-picker-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.color-dots {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.color-dot {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  cursor: pointer;
+  padding: 0;
+  transition: all 0.15s;
+}
+.color-dot:hover {
+  transform: scale(1.15);
+  border-color: var(--text);
+}
+.color-dot.selected {
+  border-color: var(--primary);
+  border-width: 3px;
+  box-shadow: 0 0 0 2px var(--primary-bg);
 }
 .g-mini-stack {
   position: relative;

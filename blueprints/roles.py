@@ -132,6 +132,7 @@ def _validate_buyer(data):
         "rooms": _num_or_none(data.get("rooms")),
         "bathrooms": _num_or_none(data.get("bathrooms")),
         "special_needs": _str_or_none(data.get("special_needs")),
+        "budget_min": _num_or_none(data.get("budget_min")),
         "budget_max": _num_or_none(data.get("budget_max")),
         "cash_available": _num_or_none(data.get("cash_available")),
         "loan_plan": _str_or_none(data.get("loan_plan")),
