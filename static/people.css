@@ -243,15 +243,39 @@ input, select, textarea { font-family: inherit; font-size: inherit; color: inher
   color: white;
 }
 
-/* 群組卡片在主列表的特殊樣式（舊版備用，新版見 .folder-card） */
-.group-list-card:not(.folder-card) {
+/* 群組卡片：跟人卡同大小，但用淡黃底 + 「👥 群組」徽章 + 大頭像疊圖 */
+.group-list-card {
   background: linear-gradient(135deg, #fef9c3 0%, #fef3c7 100%);
+  border-color: #fde68a;
+  position: relative;
+  padding-top: 22px;  /* 留空間給右上角徽章 */
+}
+.group-list-card:hover {
+  border-color: #f59e0b;
+}
+/* 右上角「👥 群組」徽章，一眼識別 */
+.group-list-card .group-badge {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  background: #f59e0b;
+  color: white;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 10px;
+  letter-spacing: 0.03em;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+  pointer-events: none;
 }
 .group-list-card .avatar.group-avatar {
-  background: white;
-  font-size: 24px;
+  background: transparent;
+  font-size: 28px;
   overflow: visible;
   position: relative;
+  width: 70px;          /* 比人像 avatar(44px) 寬，容納 3 張錯開的頭像 */
+  height: 44px;
+  flex-shrink: 0;
 }
 
 /* ============================================
@@ -575,37 +599,37 @@ input, select, textarea { font-family: inherit; font-size: inherit; color: inher
   border-width: 3px;
   box-shadow: 0 0 0 2px var(--primary-bg);
 }
+/* 三人臉橫向錯開（最多顯示 3 張，超過就疊在第 3 張上）*/
 .g-mini-stack {
   position: relative;
-  width: 44px;
+  width: 70px;
   height: 44px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
-.g-mini-stack > .g-mini-avatar:nth-child(1) { transform: translate(-8px, -6px); z-index: 3; }
-.g-mini-stack > .g-mini-avatar:nth-child(2) { transform: translate(8px, -6px); z-index: 2; }
-.g-mini-stack > .g-mini-avatar:nth-child(3) { transform: translate(0, 8px); z-index: 1; }
+.g-mini-stack > .g-mini-avatar:nth-child(1) { left: 0;   z-index: 3; }
+.g-mini-stack > .g-mini-avatar:nth-child(2) { left: 18px; z-index: 2; }
+.g-mini-stack > .g-mini-avatar:nth-child(3) { left: 36px; z-index: 1; }
 .g-mini-avatar {
   position: absolute;
-  width: 26px;
-  height: 26px;
+  top: 4px;
+  width: 36px;        /* 從 26 → 36，看得清楚臉 */
+  height: 36px;
   border-radius: 50%;
-  background: var(--primary-bg);
+  background: white;
   color: var(--primary-dark);
   border: 2px solid white;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.18);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 700;
   overflow: hidden;
 }
 .g-mini-avatar img { width: 100%; height: 100%; object-fit: cover; }
 .group-list-card.drop-target {
   border-color: var(--success) !important;
   border-width: 3px;
-  background: #dcfce7;
+  background: #dcfce7 !important;
   transform: scale(1.02);
 }
 
