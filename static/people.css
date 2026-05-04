@@ -206,6 +206,20 @@ input, select, textarea { font-family: inherit; font-size: inherit; color: inher
   display: flex;
   gap: 10px;
   margin-bottom: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+/* 手機：搜尋獨佔一行，其他按鈕擠在第二行（emoji-only 不擋手指） */
+@media (max-width: 768px) {
+  .toolbar .search {
+    flex: 1 1 100%;
+  }
+  /* 顯示模式 / 檢視方式：只留 emoji，藏文字（已用 emoji 識別） */
+  .show-mode-btn { padding: 6px 10px; font-size: 16px; }
+  .show-mode-btn .label-text { display: none; }
+  .view-mode-btn { padding: 6px 10px; font-size: 16px; }
+  /* 新增按鈕縮窄 */
+  .toolbar > .btn-primary { padding: 8px 12px; font-size: 13px; flex-shrink: 0; }
 }
 .search {
   flex: 1;

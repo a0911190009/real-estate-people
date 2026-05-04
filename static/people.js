@@ -739,11 +739,24 @@
   }
 
   async function reorderCard(draggedId, targetId, position = 'before') {
-    // 同類別才 reorder（人 vs 人，群組 vs 群組）
+    // 分區/看板模式：不靠 bucketFilter（顯示 4 個 bucket），其他模式照舊
+    const isMultiBucket = state.viewMode !== 'grid';
+    const passes  = isMultiBucket ? passesFiltersIgnoreBucket  : passesFilters;
+    const passesG = isMultiBucket ? passesGroupFiltersIgnoreBucket : passesGroupFilters;
+
+    // 必須跟 render() 用同樣的排序邏輯，否則重新編號時會用儲存順序（亂）
+    const sortKey = (x) => x.last_contact_at || x.updated_at || '';
+    const sortFn = (a, b) => {
+      if (a.sort_order != null && b.sort_order != null) return a.sort_order - b.sort_order;
+      if (a.sort_order != null) return -1;
+      if (b.sort_order != null) return 1;
+      return (sortKey(b) || '').localeCompare(sortKey(a) || '');
+    };
     const allVisible = [
-      ...state.people.filter(passesFilters),
-      ...state.groups.filter(passesGroupFilters),
-    ];
+      ...state.people.filter(passes),
+      ...state.groups.filter(passesG),
+    ].sort(sortFn);
+
     const fromIdx = allVisible.findIndex(x => x.id === draggedId);
     let toIdx = allVisible.findIndex(x => x.id === targetId);
     if (fromIdx < 0 || toIdx < 0) return;
