@@ -914,6 +914,53 @@
   }
 
   // ─── 事件綁定 ───
+  // ── 篩選狀態存取（從詳情頁回來時還原）──
+  function saveFilters() {
+    try {
+      localStorage.setItem('people_filters', JSON.stringify({
+        bucketFilter: state.bucketFilter,
+        roleFilter: state.roleFilter,
+        extraFilters: state.extraFilters,
+        searchTerm: state.searchTerm,
+        showMode: state.showMode,
+      }));
+    } catch (_) {}
+  }
+  function restoreFilters() {
+    try {
+      const saved = JSON.parse(localStorage.getItem('people_filters') || '{}');
+      if (Array.isArray(saved.bucketFilter)) state.bucketFilter = saved.bucketFilter;
+      if (Array.isArray(saved.roleFilter)) state.roleFilter = saved.roleFilter;
+      if (saved.extraFilters && typeof saved.extraFilters === 'object') {
+        state.extraFilters = { ...state.extraFilters, ...saved.extraFilters };
+      }
+      if (typeof saved.searchTerm === 'string') state.searchTerm = saved.searchTerm;
+      if (saved.showMode) state.showMode = saved.showMode;
+    } catch (_) {}
+  }
+  // 把 state 同步回 UI 控制項（checkbox/active tab/search input）
+  function syncFiltersToUI() {
+    // bucket tab：找出 data-bucket 跟目前 state 完全一樣的 tab 設 active
+    const cur = (state.bucketFilter || []).slice().sort().join(',');
+    $$('.bucket-tab').forEach(b => {
+      const tabBuckets = (b.dataset.bucket || '').split(',').filter(Boolean).sort().join(',');
+      b.classList.toggle('active', tabBuckets === cur);
+    });
+    // role checkbox
+    $$('.chk input[data-role]').forEach(cb => {
+      cb.checked = (state.roleFilter || []).includes(cb.dataset.role);
+    });
+    // 額外篩選
+    if ($('#filterWarning')) $('#filterWarning').checked = !!state.extraFilters.warning;
+    if ($('#filterStale')) $('#filterStale').checked = !!state.extraFilters.stale;
+    if ($('#filterIncomplete')) $('#filterIncomplete').checked = !!state.extraFilters.incomplete;
+    if ($('#filterAgentNoAuth')) $('#filterAgentNoAuth').checked = !!state.extraFilters.agentNoAuth;
+    // 搜尋
+    if ($('#searchInput') && typeof state.searchTerm === 'string') $('#searchInput').value = state.searchTerm;
+    // 顯示模式
+    $$('.show-mode-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === state.showMode));
+  }
+
   function bindEvents() {
     // bucket tabs（點擊切換 + 接收 drop）
     $$('.bucket-tab').forEach(btn => {
@@ -921,6 +968,7 @@
         $$('.bucket-tab').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         state.bucketFilter = btn.dataset.bucket.split(',').filter(Boolean);
+        saveFilters();
         render();
       });
       btn.addEventListener('dragover', onBucketDragOver);
@@ -932,6 +980,7 @@
     $$('.chk input[data-role]').forEach(cb => {
       cb.addEventListener('change', () => {
         state.roleFilter = $$('.chk input[data-role]:checked').map(x => x.dataset.role);
+        saveFilters();
         render();
       });
     });
@@ -939,14 +988,17 @@
     // 額外篩選
     $('#filterWarning').addEventListener('change', (e) => {
       state.extraFilters.warning = e.target.checked;
+      saveFilters();
       render();
     });
     $('#filterStale').addEventListener('change', (e) => {
       state.extraFilters.stale = e.target.checked;
+      saveFilters();
       render();
     });
     $('#filterIncomplete').addEventListener('change', (e) => {
       state.extraFilters.incomplete = e.target.checked;
+      saveFilters();
       render();
     });
     $('#filterAgentNoAuth').addEventListener('change', async (e) => {
@@ -956,6 +1008,7 @@
         e.target.checked = false;
         state.extraFilters.agentNoAuth = false;
       }
+      saveFilters();
       render();
     });
 
@@ -963,8 +1016,11 @@
     $('#btnClearFilters').addEventListener('click', () => {
       state.roleFilter = [];
       state.extraFilters = { warning: false, stale: false, agentNoAuth: false };
+      state.searchTerm = '';
       $$('.chk input').forEach(x => x.checked = false);
+      if ($('#searchInput')) $('#searchInput').value = '';
       // bucket 不重設（保持當前 tab）
+      saveFilters();
       render();
     });
 
@@ -974,6 +1030,7 @@
       clearTimeout(searchTimer);
       searchTimer = setTimeout(() => {
         state.searchTerm = e.target.value.trim();
+        saveFilters();
         render();
       }, 200);
     });
@@ -997,6 +1054,7 @@
         $$('.show-mode-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         state.showMode = btn.dataset.mode;
+        saveFilters();
         render();
       });
     });
@@ -1095,9 +1153,12 @@
 
   // ─── 啟動 ───
   document.addEventListener('DOMContentLoaded', () => {
+    // 先還原 localStorage 中的篩選狀態（從詳情頁回來時不丟）
+    restoreFilters();
     bindEvents();
+    syncFiltersToUI();
 
-    // ?show=groups → 切到「只看群組」模式
+    // ?show=groups → 切到「只看群組」模式（URL 參數優先於 localStorage）
     const params = new URLSearchParams(window.location.search);
     const showParam = params.get('show');
     if (showParam === 'groups' || showParam === 'people') {
