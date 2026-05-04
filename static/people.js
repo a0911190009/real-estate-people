@@ -19,6 +19,7 @@
       agentNoAuth: false,
     },
     showMode: 'all',  // 'all' | 'people' | 'groups'
+    viewMode: localStorage.getItem('people_view_mode') || 'grid',  // 'grid' | 'sections' | 'kanban'
     sellerRolesCache: {},
   };
 
@@ -305,19 +306,24 @@
   }
 
   // ─── 渲染卡片 ───
-  function render() {
-    const grid = $('#cardGrid');
-    const empty = $('#emptyState');
-
-    // 人 + 群組依 showMode 混合
+  // 取得「過濾＋排序」後的混合 items
+  function getFilteredItems(forceShowAllBuckets = false) {
     const showPeople = state.showMode !== 'groups';
     const showGroups = state.showMode !== 'people';
-    const peopleItems = showPeople ? state.people.filter(passesFilters) : [];
-    const groupItems = showGroups ? state.groups.filter(passesGroupFilters) : [];
 
-    // 統一排序鍵：sort_order 優先；否則 last_contact_at（人）或 updated_at（群組）
+    // 分區/看板模式時，bucket 過濾交給各區段自己處理（不靠 sidebar bucketFilter）
+    const passes = forceShowAllBuckets
+      ? p => passesFiltersIgnoreBucket(p)
+      : passesFilters;
+    const passesG = forceShowAllBuckets
+      ? g => passesGroupFiltersIgnoreBucket(g)
+      : passesGroupFilters;
+
+    const peopleItems = showPeople ? state.people.filter(passes) : [];
+    const groupItems  = showGroups ? state.groups.filter(passesG) : [];
+
     const sortKey = (it) => it.last_contact_at || it.updated_at || '';
-    const items = [
+    return [
       ...peopleItems.map(p => ({ kind: 'person', data: p })),
       ...groupItems.map(g => ({ kind: 'group', data: g })),
     ].sort((a, b) => {
@@ -327,26 +333,38 @@
       if (bo != null) return 1;
       return (sortKey(b.data) || '').localeCompare(sortKey(a.data) || '');
     });
+  }
 
-    // 更新 sidebar 各分類計數（不受 showMode/搜尋/角色篩選影響，只看 bucket 分布）
+  // 同 passesFilters 但忽略 bucketFilter（給分區/看板用）
+  function passesFiltersIgnoreBucket(p) {
+    const orig = state.bucketFilter;
+    state.bucketFilter = [];
+    const r = passesFilters(p);
+    state.bucketFilter = orig;
+    return r;
+  }
+  function passesGroupFiltersIgnoreBucket(g) {
+    const orig = state.bucketFilter;
+    state.bucketFilter = [];
+    const r = passesGroupFilters(g);
+    state.bucketFilter = orig;
+    return r;
+  }
+
+  function render() {
     updateSidebarCounts();
+    // 切換 view 容器顯示
+    $('#cardGrid').style.display = state.viewMode === 'grid' ? '' : 'none';
+    $('#sectionsView').style.display = state.viewMode === 'sections' ? '' : 'none';
+    $('#kanbanView').style.display = state.viewMode === 'kanban' ? '' : 'none';
 
-    if (items.length === 0) {
-      grid.innerHTML = '';
-      empty.style.display = 'block';
-      $('#statusBar').textContent = '此分類目前沒有資料';
-      return;
-    }
+    if (state.viewMode === 'sections') return renderSections();
+    if (state.viewMode === 'kanban')  return renderKanban();
+    return renderGrid();
+  }
 
-    empty.style.display = 'none';
-    grid.innerHTML = items.map(it => it.kind === 'group' ? renderGroupCard(it.data) : renderCard(it.data)).join('');
-    $('#statusBar').textContent =
-      `顯示 ${peopleItems.length} 位人脈` +
-      (showGroups ? ` + ${groupItems.length} 個群組` : '') +
-      `（共 ${state.people.length} / ${state.groups.length}）`;
-
-    // 點卡片：人 → 詳情頁、群組 → 群組頁；拖曳處理
-    $$('.person-card').forEach(card => {
+  function attachCardHandlers(scope) {
+    (scope || document).querySelectorAll('.person-card').forEach(card => {
       card.addEventListener('click', onCardClick);
       card.addEventListener('dragstart', onCardDragStart);
       card.addEventListener('dragover', onCardDragOver);
@@ -357,6 +375,135 @@
       card.addEventListener('touchmove', onCardTouchMove, { passive: false });
       card.addEventListener('touchend', onCardTouchEnd);
       card.addEventListener('touchcancel', onCardTouchEnd);
+    });
+  }
+
+  // ─── A：原有卡片網格 ───
+  function renderGrid() {
+    const grid = $('#cardGrid');
+    const empty = $('#emptyState');
+    const items = getFilteredItems(false);
+
+    if (items.length === 0) {
+      grid.innerHTML = '';
+      empty.style.display = 'block';
+      $('#statusBar').textContent = '此分類目前沒有資料';
+      return;
+    }
+    empty.style.display = 'none';
+    grid.innerHTML = items.map(it => it.kind === 'group' ? renderGroupCard(it.data) : renderCard(it.data)).join('');
+
+    const peopleCount = items.filter(i => i.kind === 'person').length;
+    const groupCount = items.length - peopleCount;
+    $('#statusBar').textContent =
+      `顯示 ${peopleCount} 位人脈 + ${groupCount} 個群組` +
+      `（共 ${state.people.length} / ${state.groups.length}）`;
+
+    attachCardHandlers(grid);
+  }
+
+  // ─── B：分區瀏覽（4 個 bucket 一頁看） ───
+  const SECTION_BUCKETS = [
+    { key: 'primary',  label: '⭐ 主力' },
+    { key: 'normal',   label: '一般' },
+    { key: 'watching', label: '👀 觀察' },
+    { key: 'frozen',   label: '🧊 冷凍' },
+  ];
+
+  function renderSections() {
+    const container = $('#sectionsView');
+    const empty = $('#emptyState');
+    empty.style.display = 'none';
+    const items = getFilteredItems(true);
+    // 按 bucket 分組
+    const byBucket = {};
+    SECTION_BUCKETS.forEach(s => byBucket[s.key] = []);
+    items.forEach(it => {
+      const b = it.data.bucket || 'normal';
+      if (byBucket[b]) byBucket[b].push(it);
+    });
+
+    container.innerHTML = SECTION_BUCKETS.map(s => {
+      const list = byBucket[s.key] || [];
+      const cards = list.length
+        ? list.map(it => it.kind === 'group' ? renderGroupCard(it.data) : renderCard(it.data)).join('')
+        : '<div class="section-block-empty">這個分類目前沒有資料 — 拖曳卡片到這裡可改分類</div>';
+      return `
+        <div class="section-block" data-bucket="${s.key}">
+          <div class="section-block-header">
+            <div class="section-block-title">${s.label}</div>
+            <span class="section-block-count">${list.length}</span>
+          </div>
+          <div class="section-block-grid">${cards}</div>
+        </div>
+      `;
+    }).join('');
+
+    $('#statusBar').textContent =
+      `分區瀏覽：${SECTION_BUCKETS.map(s => `${s.label} ${byBucket[s.key].length}`).join(' · ')}`;
+
+    attachCardHandlers(container);
+    attachBucketContainerHandlers(container.querySelectorAll('.section-block'));
+  }
+
+  // ─── C：看板（4 欄並排） ───
+  function renderKanban() {
+    const container = $('#kanbanView');
+    const empty = $('#emptyState');
+    empty.style.display = 'none';
+    const items = getFilteredItems(true);
+    const byBucket = {};
+    SECTION_BUCKETS.forEach(s => byBucket[s.key] = []);
+    items.forEach(it => {
+      const b = it.data.bucket || 'normal';
+      if (byBucket[b]) byBucket[b].push(it);
+    });
+
+    container.innerHTML = SECTION_BUCKETS.map(s => {
+      const list = byBucket[s.key] || [];
+      const cards = list.length
+        ? list.map(it => it.kind === 'group' ? renderGroupCard(it.data) : renderCard(it.data)).join('')
+        : '<div class="kanban-col-empty">空 — 拖曳到此</div>';
+      return `
+        <div class="kanban-col" data-bucket="${s.key}">
+          <div class="kanban-col-header">
+            <div class="kanban-col-title">${s.label}</div>
+            <span class="kanban-col-count">${list.length}</span>
+          </div>
+          ${cards}
+        </div>
+      `;
+    }).join('');
+
+    $('#statusBar').textContent =
+      `看板：${SECTION_BUCKETS.map(s => `${s.label} ${byBucket[s.key].length}`).join(' · ')}`;
+
+    attachCardHandlers(container);
+    attachBucketContainerHandlers(container.querySelectorAll('.kanban-col'));
+  }
+
+  // 分區 / 看板的「容器」拖放：拖卡片到不同 bucket 容器 → 改 bucket
+  function attachBucketContainerHandlers(containers) {
+    containers.forEach(el => {
+      el.addEventListener('dragover', (e) => {
+        if (!_draggingId) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        el.classList.add('is-drop-target');
+      });
+      el.addEventListener('dragleave', (e) => {
+        // 只在離開容器本身時移除（不是子元素）
+        if (e.target === el) el.classList.remove('is-drop-target');
+      });
+      el.addEventListener('drop', (e) => {
+        e.preventDefault();
+        el.classList.remove('is-drop-target');
+        const newBucket = el.dataset.bucket;
+        if (!_draggingId || !newBucket) return;
+        // 若 drop 落在卡片上會走 onCardDrop，這裡只處理空白區
+        if (e.target.closest('.person-card')) return;
+        changeBucket(_draggingId, newBucket);
+      });
     });
   }
 
@@ -439,45 +586,80 @@
     e.currentTarget.classList.add('dragging');
   }
 
+  // 清除所有插入線標記
+  function clearDropIndicators() {
+    $$('.drop-before, .drop-after').forEach(el => {
+      el.classList.remove('drop-before', 'drop-after');
+    });
+  }
+
   function onCardDragOver(e) {
     if (!_draggingId) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
-    if (e.currentTarget.dataset.id !== _draggingId) {
-      e.currentTarget.classList.add('drop-target');
+    const card = e.currentTarget;
+    if (card.dataset.id === _draggingId) return;
+
+    // 分區 / 看板模式 + 同類拖曳 → 顯示插入線（reorder 模式）
+    // 卡片網格模式：人→人 預設是建群組，僅 Shift 時 reorder；不畫線（避免誤導）
+    const targetKind = card.dataset.kind || 'person';
+    const isReorderContext =
+      state.viewMode !== 'grid' ||
+      e.shiftKey ||
+      _draggingKind === 'group' ||
+      targetKind === 'group';
+
+    if (isReorderContext) {
+      const rect = card.getBoundingClientRect();
+      const isUpperHalf = (e.clientY - rect.top) < (rect.height / 2);
+      // 先清掉自己舊的 marker
+      card.classList.remove('drop-before', 'drop-after', 'drop-target');
+      card.classList.add(isUpperHalf ? 'drop-before' : 'drop-after');
+    } else {
+      card.classList.remove('drop-before', 'drop-after');
+      card.classList.add('drop-target');
     }
   }
   function onCardDragLeave(e) {
-    e.currentTarget.classList.remove('drop-target');
+    e.currentTarget.classList.remove('drop-target', 'drop-before', 'drop-after');
   }
 
   function onCardDrop(e) {
     e.preventDefault();
     e.stopPropagation();
-    e.currentTarget.classList.remove('drop-target');
-    const targetId = e.currentTarget.dataset.id;
-    const targetKind = e.currentTarget.dataset.kind || 'person';
+    const card = e.currentTarget;
+    const insertBefore = card.classList.contains('drop-before');
+    const insertAfter = card.classList.contains('drop-after');
+    card.classList.remove('drop-target', 'drop-before', 'drop-after');
+    const targetId = card.dataset.id;
+    const targetKind = card.dataset.kind || 'person';
     if (!_draggingId || _draggingId === targetId) return;
 
     // 拖人 → 群組：加成員
-    if (_draggingKind === 'person' && targetKind === 'group') {
+    if (_draggingKind === 'person' && targetKind === 'group' && !insertBefore && !insertAfter) {
       addMemberToGroup(targetId, _draggingId);
       return;
     }
-    // 拖人 → 人：建群組
-    if (_draggingKind === 'person' && targetKind === 'person') {
+    // 拖人 → 人（卡片網格模式 + 沒按 Shift）：預設建群組
+    if (_draggingKind === 'person' && targetKind === 'person' && state.viewMode === 'grid' && !e.shiftKey) {
       const draggedPerson = state.people.find(p => p.id === _draggingId);
       const targetPerson = state.people.find(p => p.id === targetId);
-      // 若使用者按住 Shift，則維持原本的 reorder 行為；否則優先建群組
-      if (e.shiftKey) {
-        reorderCard(_draggingId, targetId);
-      } else {
-        offerCreateGroup(draggedPerson, targetPerson);
-      }
+      offerCreateGroup(draggedPerson, targetPerson);
       return;
     }
-    // 群組 → 群組 / 群組 → 人：純 reorder
-    reorderCard(_draggingId, targetId);
+    // 其他狀況都是 reorder（含 sections / kanban view）
+    // 若是分區/看板，且目標卡片所屬 bucket 與拖曳卡不同，先改 bucket 再 reorder
+    const containerEl = card.closest('[data-bucket]');
+    const targetBucket = containerEl ? containerEl.dataset.bucket : null;
+    const dragged = state.people.find(p => p.id === _draggingId) || state.groups.find(g => g.id === _draggingId);
+    if (targetBucket && dragged && dragged.bucket !== targetBucket) {
+      changeBucket(_draggingId, targetBucket).then(() => {
+        // bucket 變更後再 reorder
+        reorderCard(_draggingId, targetId, insertAfter ? 'after' : 'before');
+      });
+    } else {
+      reorderCard(_draggingId, targetId, insertAfter ? 'after' : 'before');
+    }
   }
 
   async function addMemberToGroup(groupId, personId) {
@@ -525,7 +707,9 @@
 
   function onCardDragEnd(e) {
     e.currentTarget.classList.remove('dragging');
-    $$('.drop-target').forEach(el => el.classList.remove('drop-target'));
+    $$('.drop-target, .drop-before, .drop-after, .is-drop-target').forEach(el => {
+      el.classList.remove('drop-target', 'drop-before', 'drop-after', 'is-drop-target');
+    });
     _wasDragging = true;
     setTimeout(() => { _wasDragging = false; }, 50);
     _draggingId = null;
@@ -552,17 +736,21 @@
     changeBucket(_draggingId, targetBucket);
   }
 
-  async function reorderCard(draggedId, targetId) {
+  async function reorderCard(draggedId, targetId, position = 'before') {
     // 同類別才 reorder（人 vs 人，群組 vs 群組）
     const allVisible = [
       ...state.people.filter(passesFilters),
       ...state.groups.filter(passesGroupFilters),
     ];
     const fromIdx = allVisible.findIndex(x => x.id === draggedId);
-    const toIdx = allVisible.findIndex(x => x.id === targetId);
+    let toIdx = allVisible.findIndex(x => x.id === targetId);
     if (fromIdx < 0 || toIdx < 0) return;
     const [moved] = allVisible.splice(fromIdx, 1);
-    allVisible.splice(toIdx, 0, moved);
+    // 抽掉 dragged 後重新計算 toIdx
+    toIdx = allVisible.findIndex(x => x.id === targetId);
+    if (toIdx < 0) toIdx = allVisible.length;
+    const insertAt = position === 'after' ? toIdx + 1 : toIdx;
+    allVisible.splice(insertAt, 0, moved);
     const updates = allVisible.map((it, idx) => ({ id: it.id, sort_order: (idx + 1) * 10 }));
     updates.forEach(u => {
       const p = state.people.find(x => x.id === u.id) || state.groups.find(x => x.id === u.id);
@@ -794,6 +982,22 @@
         $$('.show-mode-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         state.showMode = btn.dataset.mode;
+        render();
+      });
+    });
+
+    // 檢視方式切換（卡片網格 / 分區 / 看板），存 localStorage
+    $$('.view-mode-btn').forEach(btn => {
+      // 還原啟動 mode 的 active 標記
+      if (btn.dataset.view === state.viewMode) {
+        $$('.view-mode-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+      }
+      btn.addEventListener('click', () => {
+        $$('.view-mode-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        state.viewMode = btn.dataset.view;
+        localStorage.setItem('people_view_mode', state.viewMode);
         render();
       });
     });

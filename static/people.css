@@ -342,6 +342,202 @@ input, select, textarea { font-family: inherit; font-size: inherit; color: inher
 }
 
 /* ============================================
+   檢視方式切換按鈕（toolbar）
+============================================ */
+.view-mode {
+  display: inline-flex;
+  gap: 2px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 2px;
+}
+.view-mode-btn {
+  background: transparent;
+  border: none;
+  padding: 5px 10px;
+  font-size: 16px;
+  cursor: pointer;
+  border-radius: 4px;
+  color: var(--text-muted);
+  transition: all 0.15s;
+}
+.view-mode-btn:hover { background: var(--bg); }
+.view-mode-btn.active {
+  background: var(--primary);
+  color: white;
+}
+
+/* ============================================
+   分區瀏覽（B：sections view）
+   一頁分 4 區段，每區段 = 一個 bucket
+============================================ */
+.sections-view {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+.section-block {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+}
+.section-block-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.section-block-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.section-block-count {
+  font-size: 12px;
+  color: var(--text-muted);
+  background: var(--bg);
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+.section-block-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+  min-height: 60px;  /* 空 bucket 也能拖進去 */
+}
+.section-block.is-drop-target {
+  border-color: var(--primary);
+  background: var(--primary-bg);
+}
+.section-block-empty {
+  grid-column: 1 / -1;
+  padding: 16px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+  border: 2px dashed var(--border);
+  border-radius: var(--radius);
+}
+
+/* ============================================
+   看板檢視（C：kanban view）
+   4 欄並排，每欄 = 一個 bucket
+============================================ */
+.kanban-view {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(240px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+.kanban-col {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: calc(100vh - 200px);
+  overflow-y: auto;
+}
+.kanban-col-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: var(--bg-elev);
+  z-index: 1;
+}
+.kanban-col-title {
+  font-size: 14px;
+  font-weight: 700;
+}
+.kanban-col-count {
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--bg);
+  padding: 2px 7px;
+  border-radius: 10px;
+}
+.kanban-col.is-drop-target {
+  border-color: var(--primary);
+  background: var(--primary-bg);
+}
+.kanban-col-empty {
+  padding: 14px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 12px;
+  border: 2px dashed var(--border);
+  border-radius: 6px;
+}
+/* kanban 內的卡片直立排列（覆寫 grid） */
+.kanban-col .person-card {
+  width: 100%;
+}
+/* kanban 內群組卡縮回正常大小（不再 grid-column: 1/-1） */
+.kanban-col .folder-card {
+  grid-column: auto;
+}
+
+/* ============================================
+   拖曳插入線（drag indicator）
+   滑鼠在卡片上半 → 上方藍光
+   下半 → 下方藍光
+============================================ */
+.person-card.drop-before,
+.person-card.drop-after {
+  position: relative;
+}
+.person-card.drop-before::before,
+.person-card.drop-after::after {
+  content: '';
+  position: absolute;
+  left: -2px;
+  right: -2px;
+  height: 3px;
+  background: var(--primary);
+  border-radius: 2px;
+  box-shadow: 0 0 8px var(--primary), 0 0 4px var(--primary);
+  animation: drop-line-pulse 0.8s ease-in-out infinite;
+  pointer-events: none;
+  z-index: 5;
+}
+.person-card.drop-before::before { top: -7px; }
+.person-card.drop-after::after { bottom: -7px; }
+
+@keyframes drop-line-pulse {
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 1; }
+}
+
+/* ============================================
+   響應式：手機上看板與分區
+============================================ */
+@media (max-width: 768px) {
+  .kanban-view {
+    grid-template-columns: 1fr;
+  }
+  .kanban-col {
+    max-height: none;
+  }
+  .section-block-grid {
+    grid-template-columns: 1fr;
+  }
+  .view-mode-btn { padding: 4px 8px; font-size: 14px; }
+}
+
+/* ============================================
    卡片顏色選擇器（詳情頁）
 ============================================ */
 .color-picker-row {

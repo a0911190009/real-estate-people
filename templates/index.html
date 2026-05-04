@@ -79,12 +79,19 @@
         <button class="show-mode-btn" data-mode="people">👤 只看人</button>
         <button class="show-mode-btn" data-mode="groups">👨‍👩‍👧 只看群組</button>
       </div>
+      <div class="view-mode" id="viewModeGroup" title="檢視方式">
+        <button class="view-mode-btn active" data-view="grid" title="卡片網格">📇</button>
+        <button class="view-mode-btn" data-view="sections" title="分區瀏覽（看 4 個 bucket）">📋</button>
+        <button class="view-mode-btn" data-view="kanban" title="看板（4 欄並排）">📊</button>
+      </div>
       <button class="btn btn-primary" id="btnAddPerson">＋ 新增</button>
     </div>
 
     <div class="status-bar" id="statusBar">載入中...</div>
 
     <div class="card-grid" id="cardGrid"></div>
+    <div class="sections-view" id="sectionsView" style="display:none"></div>
+    <div class="kanban-view" id="kanbanView" style="display:none"></div>
 
     <div class="empty-state" id="emptyState" style="display:none">
       <div class="empty-icon">👥</div>
