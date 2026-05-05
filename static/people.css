@@ -2158,7 +2158,23 @@ input, select, textarea { font-family: inherit; font-size: inherit; color: inher
   .sidebar.open { transform: translateX(0); }
   .main { padding: 12px 14px; }
   .card-grid { grid-template-columns: 1fr; }
-  .modal { max-width: 100%; max-height: 100vh; height: 100vh; border-radius: 0; }
+  /* iOS Safari 的 100vh 包含網址列+底部工具列那塊，會把 modal 撐到底部按鈕被遮住。
+     改用 dvh（動態視口高度，會跟著工具列縮放）並把 modal 容器的 padding 拿掉。 */
+  .modal-bg { padding: 0; align-items: stretch; }
+  .modal {
+    max-width: 100%;
+    max-height: 100dvh;
+    height: 100dvh;
+    border-radius: 0;
+  }
+  /* 修正：底部工具列／home indicator 高度 → ftr 加 safe-area 距離 */
+  .modal-ftr {
+    padding-bottom: calc(12px + env(safe-area-inset-bottom));
+    position: sticky;
+    bottom: 0;
+    background: var(--bg-elev);
+    z-index: 1;
+  }
   .form-row-2col { grid-template-columns: 1fr; }
   .dyn-row { grid-template-columns: 90px 1fr 32px; }
   .dyn-row .dyn-label { display: none; }
