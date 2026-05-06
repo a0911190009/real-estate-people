@@ -1204,6 +1204,37 @@ input, select, textarea { font-family: inherit; font-size: inherit; color: inher
   padding: 16px 0;
   margin-bottom: 12px;
 }
+/* 頭像 + 貼上按鈕的容器 */
+.avatar-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+.avatar-paste-btn {
+  position: absolute;
+  bottom: -4px;
+  right: -4px;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: white;
+  border: 2px solid var(--primary);
+  color: var(--primary);
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+  padding: 0;
+  z-index: 2;
+  transition: transform 0.1s;
+}
+.avatar-paste-btn:hover {
+  transform: scale(1.1);
+  background: var(--primary-bg);
+}
+.avatar-paste-btn:active { transform: scale(0.95); }
+
 .detail-avatar {
   width: 80px;
   height: 80px;

@@ -2042,6 +2042,17 @@
     $('#btnPasteFile')?.addEventListener('click', pasteFromClipboard);
     bindFileDropzone();
 
+    // 頭像旁的「📋 貼上」icon
+    $('#btnPasteAvatar')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (window.UploadMenu) {
+        window.UploadMenu.paste({
+          multiple: false,
+          onFiles: (files) => { if (files[0]) uploadAvatarFile(files[0]); },
+        });
+      }
+    });
+
     // 右鍵 / 長按選單：頭像 + 附件區
     if (window.UploadMenu) {
       window.UploadMenu.attach($('#detailAvatar'), {
