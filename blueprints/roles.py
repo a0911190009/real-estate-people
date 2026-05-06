@@ -188,6 +188,7 @@ def _validate_seller(data):
         # agent_authorization_file 不在這裡設定，由 upload-auth 端點獨立寫入
         "motivation": _str_or_none(data.get("motivation")),
         "owner_price": _num_or_none(data.get("owner_price")),
+        "suggest_price": _num_or_none(data.get("suggest_price")),
         "bottom_price": _num_or_none(data.get("bottom_price")),
         "urgency": urgency,
         "showing_availability": _str_or_none(data.get("showing_availability")),
