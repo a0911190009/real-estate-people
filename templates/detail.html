@@ -143,6 +143,34 @@
 
 </main>
 
+<!-- 加成員 Modal（搜尋 + 列表 + 新增） -->
+<div class="modal-bg" id="memberPickerModal" style="display:none">
+  <div class="modal" style="max-width:440px">
+    <div class="modal-hdr">
+      <h2>＋ 加成員</h2>
+      <button class="btn-icon" id="btnCloseMemberModal" title="關閉">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <input type="text" id="memberSearch" placeholder="🔍 搜尋既有人脈..." autocomplete="off">
+        <div id="memberCandidates" class="rel-candidates"></div>
+      </div>
+      <div class="form-row" style="border-top:1px solid var(--border); padding-top:12px; margin-top:12px;">
+        <label class="lbl">找不到？直接新增一位</label>
+        <div style="display:flex; gap:8px;">
+          <input type="text" id="memberNewName" placeholder="輸入姓名..." style="flex:1;">
+          <button class="btn btn-primary" id="btnCreateMember" type="button">＋ 新增並加入</button>
+        </div>
+        <small class="muted" style="margin-top:4px; display:block;">會建立一筆新人脈（預設「一般」分類），並自動加入此群組</small>
+      </div>
+    </div>
+    <div class="modal-ftr">
+      <span style="flex:1"></span>
+      <button class="btn" id="btnCancelMemberModal">關閉</button>
+    </div>
+  </div>
+</div>
+
 <!-- 關聯 Modal -->
 <div class="modal-bg" id="relationModal" style="display:none">
   <div class="modal" style="max-width:440px">

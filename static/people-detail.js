@@ -263,7 +263,7 @@
   // ═════════════════════════════════════════
   //  「被提到的紀錄」區（一般人，read-only）
   // ═════════════════════════════════════════
-  // 加成員：用既有的關聯人 modal（重用 search candidates）
+  // 加成員：開啟 modal（搜尋既有 + 新增）
   async function openMemberPicker() {
     if (state.allPeopleForPicker.length === 0) {
       try {
@@ -271,27 +271,74 @@
         state.allPeopleForPicker = data.items || [];
       } catch (_) {}
     }
-    const candidates = state.allPeopleForPicker
-      .filter(p => p.id !== PID && !p.is_group && !(state.person.members || []).includes(p.id));
+    $('#memberPickerModal').style.display = 'flex';
+    $('#memberSearch').value = '';
+    $('#memberNewName').value = '';
+    renderMemberCandidates('');
+    setTimeout(() => $('#memberSearch').focus(), 50);
+  }
+
+  function closeMemberPicker() {
+    $('#memberPickerModal').style.display = 'none';
+  }
+
+  function renderMemberCandidates(filter) {
+    const memberIds = state.person.members || [];
+    const q = (filter || '').toLowerCase().trim();
+    const candidates = state.allPeopleForPicker.filter(p => {
+      if (p.id === PID || p.is_group || memberIds.includes(p.id)) return false;
+      if (!q) return true;
+      const hay = ((p.name || '') + ' ' + (p.display_name || '') + ' ' + (p.company || '')).toLowerCase();
+      return hay.includes(q);
+    }).slice(0, 50);
+    const box = $('#memberCandidates');
     if (candidates.length === 0) {
-      showToast('沒有可加的成員');
+      box.innerHTML = '<p class="muted" style="padding:8px;">沒有符合的人脈</p>';
       return;
     }
-    const choice = prompt(
-      `從現有人脈選一位加進此群組：\n\n` +
-      candidates.slice(0, 30).map((p, i) => `${i+1}. ${p.name}`).join('\n') +
-      `\n\n輸入編號（1-${Math.min(30, candidates.length)}）：`
-    );
-    if (!choice) return;
-    const idx = parseInt(choice, 10) - 1;
-    if (isNaN(idx) || idx < 0 || idx >= candidates.length) {
-      showToast('編號無效', 'danger');
-      return;
-    }
-    const pickedId = candidates[idx].id;
+    box.innerHTML = candidates.map(p => `
+      <button type="button" class="rel-candidate" data-id="${escapeHtml(p.id)}" data-name="${escapeHtml(p.name || '')}">
+        <div class="rel-candidate-avatar">${p.avatar_b64 ? `<img src="${p.avatar_b64.startsWith('data:') ? p.avatar_b64 : 'data:image/jpeg;base64,'+p.avatar_b64}">` : escapeHtml(nameInitial(p.name))}</div>
+        <div class="rel-candidate-info">
+          <div class="rel-candidate-name">${escapeHtml(p.name || '')}</div>
+          ${p.display_name || p.company ? `<div class="rel-candidate-sub">${escapeHtml([p.display_name, p.company].filter(Boolean).join(' · '))}</div>` : ''}
+        </div>
+      </button>
+    `).join('');
+    box.querySelectorAll('.rel-candidate').forEach(btn => {
+      btn.addEventListener('click', () => addExistingMember(btn.dataset.id, btn.dataset.name));
+    });
+  }
+
+  async function addExistingMember(personId, personName) {
     try {
-      await api('POST', `/api/people/${PID}/members/${pickedId}`);
-      showToast(`已加入「${candidates[idx].name}」`);
+      await api('POST', `/api/people/${PID}/members/${personId}`);
+      showToast(`已加入「${personName}」`);
+      closeMemberPicker();
+      await loadAll();
+    } catch (e) { showToast('失敗：' + e.message, 'danger'); }
+  }
+
+  async function createAndAddMember() {
+    const name = ($('#memberNewName').value || '').trim();
+    if (!name) {
+      showToast('請輸入姓名', 'danger');
+      $('#memberNewName').focus();
+      return;
+    }
+    try {
+      // 1. 建立新人脈（一般分類，預設）
+      const newPerson = await api('POST', '/api/people', {
+        name,
+        bucket: 'normal',
+        is_group: false,
+      });
+      // 2. 加入此群組
+      await api('POST', `/api/people/${PID}/members/${newPerson.id}`);
+      showToast(`已新增並加入「${name}」`);
+      // 3. 同步更新 picker cache，讓搜尋看得到新人
+      state.allPeopleForPicker.push(newPerson);
+      closeMemberPicker();
       await loadAll();
     } catch (e) { showToast('失敗：' + e.message, 'danger'); }
   }
@@ -1965,6 +2012,16 @@
 
     // 加成員按鈕（群組頁）
     $('#btnAddMember')?.addEventListener('click', openMemberPicker);
+    $('#btnCloseMemberModal')?.addEventListener('click', closeMemberPicker);
+    $('#btnCancelMemberModal')?.addEventListener('click', closeMemberPicker);
+    $('#memberPickerModal')?.addEventListener('click', (e) => {
+      if (e.target.id === 'memberPickerModal') closeMemberPicker();
+    });
+    $('#memberSearch')?.addEventListener('input', (e) => renderMemberCandidates(e.target.value));
+    $('#btnCreateMember')?.addEventListener('click', createAndAddMember);
+    $('#memberNewName')?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); createAndAddMember(); }
+    });
 
     // 附件上傳
     $('#btnAddFile').addEventListener('click', () => $('#hiddenFileInput').click());
