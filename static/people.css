@@ -576,6 +576,108 @@ input, select, textarea { font-family: inherit; font-size: inherit; color: inher
 }
 
 /* ============================================
+   卡片右鍵 / 長按選單（人脈列表）
+============================================ */
+.card-ctx-menu {
+  position: fixed;
+  z-index: 9999;
+  min-width: 240px;
+  max-width: 320px;
+  background: white;
+  color: #1f2937;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0,0,0,0.18);
+  padding: 6px;
+  font-size: 13px;
+  user-select: none;
+  animation: ccm-fade 0.12s ease-out;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+@keyframes ccm-fade {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.ccm-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.ccm-row:hover { background: #eff6ff; color: #1d4ed8; }
+.ccm-row.danger { color: var(--danger); }
+.ccm-row.danger:hover { background: var(--danger-bg); }
+.ccm-divider {
+  height: 1px;
+  background: #e5e7eb;
+  margin: 4px 0;
+}
+.ccm-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  padding: 4px 12px;
+  letter-spacing: 0.04em;
+}
+/* 顏色選擇 */
+.ccm-colors {
+  display: flex;
+  gap: 4px;
+  padding: 2px 10px 8px;
+  flex-wrap: wrap;
+}
+.ccm-color {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  cursor: pointer;
+  padding: 0;
+  transition: transform 0.1s;
+}
+.ccm-color:hover { transform: scale(1.15); }
+.ccm-color.selected {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--primary-bg);
+}
+/* bucket / role 按鈕 */
+.ccm-buckets, .ccm-roles {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  padding: 2px 10px 8px;
+}
+.ccm-bucket, .ccm-role {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.1s;
+}
+.ccm-bucket:hover, .ccm-role:hover:not(:disabled) {
+  background: var(--primary-bg);
+  border-color: var(--primary);
+}
+.ccm-bucket.active {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+}
+.ccm-role.has {
+  background: var(--success-bg, #dcfce7);
+  border-color: var(--success, #22c55e);
+  color: var(--success, #16a34a);
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+/* ============================================
    卡片顏色選擇器（詳情頁）
 ============================================ */
 .color-picker-row {

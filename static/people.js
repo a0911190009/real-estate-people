@@ -377,6 +377,11 @@
       card.addEventListener('touchmove', onCardTouchMove, { passive: false });
       card.addEventListener('touchend', onCardTouchEnd);
       card.addEventListener('touchcancel', onCardTouchEnd);
+      // 桌面右鍵 → 選單
+      card.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        showCardCtxMenu(card, e.clientX, e.clientY);
+      });
     });
   }
 
@@ -779,12 +784,150 @@
     }
   }
 
-  // ─── 手機觸控長按拖曳（400ms 啟動，避免干擾捲動）───
+  // ─── 卡片右鍵 / 長按選單 ───
+  const ROLE_TYPES_MENU = [
+    { type: 'buyer', label: '買方' },
+    { type: 'seller', label: '賣方' },
+    { type: 'introducer', label: '介紹人' },
+    { type: 'peer', label: '同業' },
+    { type: 'landlord', label: '房東' },
+    { type: 'owner_friend', label: '屋主朋友' },
+    { type: 'friend', label: '朋友' },
+    { type: 'relative', label: '親戚' },
+  ];
+  const BUCKETS_MENU = [
+    { key: 'primary', label: '⭐ 主力' },
+    { key: 'normal', label: '一般' },
+    { key: 'watching', label: '👀 觀察' },
+    { key: 'frozen', label: '🧊 冷凍' },
+    { key: 'closed', label: '✅ 已成交' },
+    { key: 'blacklist', label: '⛔ 黑名單' },
+  ];
+  const COLORS_MENU = [
+    '', '#ffd6d6', '#ffdfc8', '#fff3c4', '#d6f5d6', '#c8f0ec',
+    '#c8e8f8', '#d4d8f8', '#ead5f8', '#f8d5ec', '#ede0d4', '#e8e8e8',
+  ];
+  let _ctxMenu = null;
+  function closeCardCtxMenu() {
+    if (_ctxMenu) { _ctxMenu.remove(); _ctxMenu = null; }
+  }
+  function showCardCtxMenu(card, x, y) {
+    closeCardCtxMenu();
+    const id = card.dataset.id;
+    const isGroup = card.dataset.kind === 'group';
+    const data = isGroup
+      ? state.groups.find(g => g.id === id)
+      : state.people.find(p => p.id === id);
+    if (!data) return;
+    const phoneObj = (data.contacts || []).find(c => c.type === 'mobile' || c.type === 'home' || c.type === 'work');
+    const phoneVal = phoneObj ? phoneObj.value : (data.phone || '');
+
+    const menu = document.createElement('div');
+    menu.className = 'card-ctx-menu';
+    menu.innerHTML = `
+      <div class="ccm-row" data-act="edit">✏️ <span>編輯</span></div>
+      <div class="ccm-row" data-act="copy-name">📋 <span>複製姓名</span></div>
+      ${phoneVal ? `<div class="ccm-row" data-act="copy-phone">📋 <span>複製電話</span></div>` : ''}
+      <div class="ccm-row" data-act="open-detail">🔗 <span>開新分頁看詳情</span></div>
+      <div class="ccm-divider"></div>
+      <div class="ccm-section-title">🎨 卡片顏色</div>
+      <div class="ccm-colors">
+        ${COLORS_MENU.map(c => `<button class="ccm-color${(data.card_color||'')===c?' selected':''}" data-color="${c}" style="${c?`background:${c}`:'background:transparent;border:1px dashed var(--border)'}" title="${c||'預設'}"></button>`).join('')}
+      </div>
+      <div class="ccm-divider"></div>
+      <div class="ccm-section-title">📌 分類</div>
+      <div class="ccm-buckets">
+        ${BUCKETS_MENU.map(b => `<button class="ccm-bucket${data.bucket===b.key?' active':''}" data-bucket="${b.key}">${b.label}</button>`).join('')}
+      </div>
+      ${!isGroup ? `
+      <div class="ccm-divider"></div>
+      <div class="ccm-section-title">➕ 加角色</div>
+      <div class="ccm-roles">
+        ${ROLE_TYPES_MENU.map(r => {
+          const has = (data.active_roles || []).includes(r.type);
+          return `<button class="ccm-role${has?' has':''}" data-role="${r.type}" ${has?'disabled':''}>${r.label}</button>`;
+        }).join('')}
+      </div>
+      ` : ''}
+      <div class="ccm-divider"></div>
+      <div class="ccm-row danger" data-act="delete">🗑 <span>移到垃圾桶</span></div>
+    `;
+    document.body.appendChild(menu);
+    _ctxMenu = menu;
+
+    // 定位（避免出格）
+    const rect = menu.getBoundingClientRect();
+    let left = x, top = y;
+    if (left + rect.width > window.innerWidth - 8) left = window.innerWidth - rect.width - 8;
+    if (top + rect.height > window.innerHeight - 8) top = window.innerHeight - rect.height - 8;
+    if (left < 8) left = 8;
+    if (top < 8) top = 8;
+    menu.style.left = left + 'px';
+    menu.style.top = top + 'px';
+
+    // 防止選單內事件冒泡關閉自己
+    menu.addEventListener('click', (e) => e.stopPropagation());
+
+    menu.querySelectorAll('.ccm-row, .ccm-color, .ccm-bucket, .ccm-role').forEach(el => {
+      el.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const act = el.dataset.act;
+        const color = el.dataset.color;
+        const bucket = el.dataset.bucket;
+        const role = el.dataset.role;
+        try {
+          if (act === 'edit') {
+            if (window.openPersonModal) window.openPersonModal(data);
+          } else if (act === 'copy-name') {
+            await navigator.clipboard.writeText(data.name || '');
+            showToast(`✓ 已複製姓名：${data.name}`);
+          } else if (act === 'copy-phone') {
+            await navigator.clipboard.writeText(phoneVal);
+            showToast(`✓ 已複製電話`);
+          } else if (act === 'open-detail') {
+            window.open(`/people/${id}`, '_blank');
+          } else if (act === 'delete') {
+            if (!confirm(`確定移到垃圾桶：「${data.name}」？`)) return;
+            await api('DELETE', `/api/people/${id}`);
+            showToast('已移到垃圾桶');
+            await loadPeople();
+          } else if (color !== undefined) {
+            await api('PATCH', `/api/people/${id}`, { card_color: color });
+            data.card_color = color || null;
+            render();
+            showToast('✓ 已套用顏色');
+          } else if (bucket !== undefined) {
+            await changeBucket(id, bucket);
+          } else if (role !== undefined) {
+            await api('POST', `/api/people/${id}/roles/${role}`, {});
+            const lbl = ROLE_TYPES_MENU.find(r => r.type === role)?.label;
+            showToast(`✓ 已加角色：${lbl}`);
+            await loadPeople();
+          }
+        } catch (err) {
+          showToast('操作失敗：' + err.message, 'danger');
+        } finally {
+          closeCardCtxMenu();
+        }
+      });
+    });
+  }
+  // 全域：點外面 / Esc / scroll / resize 關閉
+  document.addEventListener('click', (e) => {
+    if (_ctxMenu && !_ctxMenu.contains(e.target)) closeCardCtxMenu();
+  });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeCardCtxMenu(); });
+  window.addEventListener('scroll', closeCardCtxMenu, true);
+  window.addEventListener('resize', closeCardCtxMenu);
+
+  // ─── 手機觸控長按拖曳（400ms 啟動）+ 800ms 跳選單 ───
   let _touchTimer = null;
+  let _menuTimer = null;
   let _touchStartX = 0, _touchStartY = 0;
   let _touchCard = null;
   let _touchPreview = null;
   const LONG_PRESS_MS = 400;
+  const MENU_PRESS_MS = 800;
 
   function onCardTouchStart(e) {
     if (e.touches.length !== 1) return;
@@ -793,12 +936,13 @@
     _touchStartY = t.clientY;
     _touchCard = e.currentTarget;
     clearTimeout(_touchTimer);
+    clearTimeout(_menuTimer);
+    closeCardCtxMenu();
+    // 400ms：啟動拖曳
     _touchTimer = setTimeout(() => {
-      // 長按啟動拖曳
       if (!_touchCard) return;
       _draggingId = _touchCard.dataset.id;
       _touchCard.classList.add('dragging');
-      // 建浮動預覽
       _touchPreview = _touchCard.cloneNode(true);
       _touchPreview.style.position = 'fixed';
       _touchPreview.style.top = (_touchStartY - 40) + 'px';
@@ -810,24 +954,39 @@
       _touchPreview.style.transform = 'scale(0.9)';
       _touchPreview.classList.add('touch-preview');
       document.body.appendChild(_touchPreview);
-      // 觸覺回饋
       if (navigator.vibrate) navigator.vibrate(40);
     }, LONG_PRESS_MS);
+    // 800ms：若手指還沒離開 → 取消拖曳，改開選單
+    _menuTimer = setTimeout(() => {
+      if (!_touchCard) return;
+      // 取消拖曳
+      if (_touchPreview) { _touchPreview.remove(); _touchPreview = null; }
+      _touchCard.classList.remove('dragging');
+      _draggingId = null;
+      $$('.drop-target').forEach(el => el.classList.remove('drop-target'));
+      // 開選單
+      if (navigator.vibrate) navigator.vibrate([20, 50, 20]);
+      showCardCtxMenu(_touchCard, _touchStartX, _touchStartY);
+      _wasDragging = true;
+      setTimeout(() => { _wasDragging = false; }, 300);
+    }, MENU_PRESS_MS);
   }
 
   function onCardTouchMove(e) {
-    // 還沒長按 → 若大幅移動，取消長按計時器（讓使用者正常捲動）
+    // 還沒長按 → 若大幅移動，取消所有計時器（讓使用者正常捲動）
     if (!_draggingId) {
       const t = e.touches[0];
       const dx = Math.abs(t.clientX - _touchStartX);
       const dy = Math.abs(t.clientY - _touchStartY);
       if (dx > 10 || dy > 10) {
         clearTimeout(_touchTimer);
+        clearTimeout(_menuTimer);
         _touchCard = null;
       }
       return;
     }
-    // 已啟動拖曳：跟手指 + 偵測下方元素
+    // 已啟動拖曳：取消選單 timer（手指有動作 = 想拖，不要切到選單）
+    clearTimeout(_menuTimer);
     e.preventDefault();
     const t = e.touches[0];
     if (_touchPreview) {
@@ -850,6 +1009,7 @@
 
   function onCardTouchEnd(e) {
     clearTimeout(_touchTimer);
+    clearTimeout(_menuTimer);
     if (!_draggingId) {
       _touchCard = null;
       return;
