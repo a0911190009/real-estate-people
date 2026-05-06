@@ -724,6 +724,16 @@
       rows.push(infoRow('🕓 上次聯絡', fmtDateTime(p.last_contact_at)));
     }
 
+    // 電話（從 BUYER/LIBRARY 同步來的單一電話欄位；contacts[] 是 PEOPLE 自己的多筆格式）
+    if (p.phone && !contacts.length) {
+      rows.push(infoRow('📱 電話', escapeHtml(p.phone)));
+    }
+
+    // 備註（BUYER/LIBRARY 同步而來，或 PEOPLE 自己加）
+    if (p.note) {
+      rows.push(infoRow('📝 備註', escapeHtml(p.note).replace(/\n/g, '<br>'), true));
+    }
+
     if (rows.length === 0) {
       rows.push(`<div class="info-row"><span class="info-val muted">尚未填寫資料</span></div>`);
     }
