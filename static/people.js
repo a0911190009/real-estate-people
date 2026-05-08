@@ -829,6 +829,7 @@
       <div class="ccm-row" data-act="copy-name">📋 <span>複製姓名</span></div>
       ${phoneVal ? `<div class="ccm-row" data-act="copy-phone">📋 <span>複製電話</span></div>` : ''}
       <div class="ccm-row" data-act="open-detail">🔗 <span>開新分頁看詳情</span></div>
+      <div class="ccm-row" data-act="merge">🔀 <span>合併到另一個人脈...</span></div>
       <div class="ccm-divider"></div>
       <div class="ccm-section-title">🎨 卡片顏色</div>
       <div class="ccm-colors">
@@ -886,6 +887,8 @@
             showToast(`✓ 已複製電話`);
           } else if (act === 'open-detail') {
             window.open(`/people/${id}`, '_blank');
+          } else if (act === 'merge') {
+            openMergePicker(data);
           } else if (act === 'delete') {
             if (!confirm(`確定移到垃圾桶：「${data.name}」？`)) return;
             await api('DELETE', `/api/people/${id}`);
@@ -919,6 +922,154 @@
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeCardCtxMenu(); });
   window.addEventListener('scroll', closeCardCtxMenu, true);
   window.addEventListener('resize', closeCardCtxMenu);
+
+  // ═════════════════════════════════════════
+  //  合併人脈（Merge）
+  // ═════════════════════════════════════════
+  let _mergeFromPerson = null;
+
+  function openMergePicker(fromPerson) {
+    closeCardCtxMenu();
+    _mergeFromPerson = fromPerson;
+    $('#mergeFromName').textContent = fromPerson.name;
+    $('#mergeFromName2').textContent = fromPerson.name;
+    $('#mergeSearch').value = '';
+    $('#mergePickerModal').style.display = 'flex';
+    renderMergeCandidates('');
+    setTimeout(() => $('#mergeSearch').focus(), 50);
+  }
+  function closeMergePicker() {
+    $('#mergePickerModal').style.display = 'none';
+    _mergeFromPerson = null;
+  }
+  function renderMergeCandidates(filter) {
+    if (!_mergeFromPerson) return;
+    const fromId = _mergeFromPerson.id;
+    const q = (filter || '').toLowerCase().trim();
+    // 候選 = 所有非自己 + 非已軟刪 的人/群組
+    const all = [
+      ...state.people.filter(p => !p.deleted_at),
+      ...state.groups.filter(g => !g.deleted_at),
+    ].filter(p => p.id !== fromId);
+    const filtered = q ? all.filter(p => {
+      const hay = ((p.name||'') + ' ' + (p.display_name||'') + ' ' + (p.company||'') + ' ' + (p.phone||'')).toLowerCase();
+      return hay.includes(q);
+    }) : all;
+    const list = filtered.slice(0, 50);
+    const box = $('#mergeCandidates');
+    if (!list.length) {
+      box.innerHTML = '<p class="muted" style="padding:8px;font-size:13px;">沒有符合的人脈</p>';
+      return;
+    }
+    box.innerHTML = list.map(p => {
+      const av = p.avatar_b64
+        ? `<img src="${p.avatar_b64.startsWith('data:') ? p.avatar_b64 : 'data:image/jpeg;base64,'+p.avatar_b64}">`
+        : escapeHtml((p.name||'?').charAt(0));
+      const roles = (p.active_roles || []).map(r => {
+        const cfg = ROLE_DISPLAY[r] || { label: r };
+        return `<span class="role-pill" style="font-size:10px;padding:1px 6px">${escapeHtml(cfg.label)}</span>`;
+      }).join('');
+      return `
+        <button type="button" class="rel-candidate" data-id="${escapeHtml(p.id)}">
+          <div class="rel-candidate-avatar">${av}</div>
+          <div class="rel-candidate-info">
+            <div class="rel-candidate-name">${p.is_group ? '👥 ' : ''}${escapeHtml(p.name||'')}</div>
+            <div class="rel-candidate-sub">
+              ${p.phone ? '📱 ' + escapeHtml(p.phone) + ' · ' : ''}${roles}
+            </div>
+          </div>
+        </button>
+      `;
+    }).join('');
+    box.querySelectorAll('.rel-candidate').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const target = list.find(p => p.id === btn.dataset.id);
+        if (target) confirmMerge(_mergeFromPerson, target);
+      });
+    });
+  }
+
+  async function confirmMerge(fromPerson, toPerson) {
+    closeMergePicker();
+    // 撈雙方詳細資訊（用 GET /api/people/<id> 拿 active_roles 等；子集合分別 count）
+    const [fromMeta, toMeta] = await Promise.all([
+      fetchMergeMeta(fromPerson.id),
+      fetchMergeMeta(toPerson.id),
+    ]);
+    const body = $('#mergeConfirmBody');
+    const card = (label, person, meta) => {
+      const av = person.avatar_b64
+        ? `<img src="${person.avatar_b64.startsWith('data:') ? person.avatar_b64 : 'data:image/jpeg;base64,'+person.avatar_b64}" style="width:48px;height:48px;border-radius:50%;object-fit:cover">`
+        : `<div style="width:48px;height:48px;border-radius:50%;background:var(--primary-bg);color:var(--primary-dark);display:flex;align-items:center;justify-content:center;font-weight:700">${escapeHtml((person.name||'?').charAt(0))}</div>`;
+      const roleStr = (person.active_roles || []).map(r => (ROLE_DISPLAY[r]?.label || r)).join('、') || '（無角色）';
+      return `
+        <div style="flex:1;border:1px solid var(--border);border-radius:8px;padding:10px;background:var(--bg-elev)">
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">${label}</div>
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
+            ${av}
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(person.name||'')}</div>
+              ${person.phone ? `<div style="font-size:11px;color:var(--text-muted)">📱 ${escapeHtml(person.phone)}</div>` : ''}
+            </div>
+          </div>
+          <div style="font-size:12px;line-height:1.7">
+            <div>角色：${escapeHtml(roleStr)}</div>
+            <div>互動 ${meta.contacts} · 附件 ${meta.files} · 物件 ${meta.properties}</div>
+          </div>
+        </div>
+      `;
+    };
+    body.innerHTML = `
+      <p style="font-size:13px;color:var(--text-muted);margin:0 0 12px">
+        ⚠️ 將把<b>左側「${escapeHtml(fromPerson.name)}」</b>合併到<b>右側「${escapeHtml(toPerson.name)}」</b>，<b>左側</b>會進垃圾桶（可救回）。
+      </p>
+      <div style="display:flex;gap:10px;align-items:stretch">
+        ${card('🗑 將被合併刪除（A）', fromPerson, fromMeta)}
+        <div style="display:flex;align-items:center;font-size:18px;color:var(--primary)">→</div>
+        ${card('✅ 保留下來（B）', toPerson, toMeta)}
+      </div>
+      <p style="font-size:12px;color:var(--text-muted);margin:14px 0 0">
+        合併後左側的互動記事 / 附件 / 物件 / 缺漏角色都會搬到右側。<br>
+        其他人關聯到 A 的會自動改指 B。
+      </p>
+    `;
+    $('#mergeConfirmModal').style.display = 'flex';
+    $('#btnDoMerge').onclick = () => doMerge(fromPerson.id, toPerson.id);
+  }
+
+  // 取得人脈的子集合計數（給合併確認頁顯示）
+  async function fetchMergeMeta(pid) {
+    try {
+      const [contacts, files, props] = await Promise.all([
+        api('GET', `/api/people/${pid}/contacts`).catch(() => ({items:[]})),
+        api('GET', `/api/people/${pid}/files`).catch(() => ({items:[]})),
+        api('GET', `/api/people/${pid}/properties`).catch(() => ({items:[]})),
+      ]);
+      return {
+        contacts: (contacts.items || []).length,
+        files: (files.items || []).length,
+        properties: (props.items || []).length,
+      };
+    } catch (_) {
+      return { contacts: 0, files: 0, properties: 0 };
+    }
+  }
+
+  function closeMergeConfirm() {
+    $('#mergeConfirmModal').style.display = 'none';
+  }
+
+  async function doMerge(fromId, toId) {
+    try {
+      const r = await api('POST', `/api/people/${fromId}/merge-to/${toId}`);
+      const m = r.moved || {};
+      showToast(`✓ 已合併（互動 ${m.contacts||0} / 附件 ${m.files||0} / 物件 ${m.properties||0} / 角色 ${m.roles||0}）`);
+      closeMergeConfirm();
+      await loadPeople();
+    } catch (e) {
+      showToast('合併失敗：' + e.message, 'danger');
+    }
+  }
 
   // ─── 手機觸控長按拖曳（400ms 啟動）+ 800ms 跳選單 ───
   let _touchTimer = null;
@@ -1206,6 +1357,19 @@
     $('#btnCloseTrash2')?.addEventListener('click', closeTrash);
     $('#trashModal')?.addEventListener('click', (e) => {
       if (e.target.id === 'trashModal') closeTrash();
+    });
+
+    // 合併人脈 modal
+    $('#btnCloseMergeModal')?.addEventListener('click', closeMergePicker);
+    $('#btnCancelMergeModal')?.addEventListener('click', closeMergePicker);
+    $('#mergePickerModal')?.addEventListener('click', (e) => {
+      if (e.target.id === 'mergePickerModal') closeMergePicker();
+    });
+    $('#mergeSearch')?.addEventListener('input', (e) => renderMergeCandidates(e.target.value));
+    $('#btnCloseMergeConfirm')?.addEventListener('click', closeMergeConfirm);
+    $('#btnCancelMergeConfirm')?.addEventListener('click', closeMergeConfirm);
+    $('#mergeConfirmModal')?.addEventListener('click', (e) => {
+      if (e.target.id === 'mergeConfirmModal') closeMergeConfirm();
     });
 
     // 顯示模式切換（全部 / 只看人 / 只看群組）

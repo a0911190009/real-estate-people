@@ -227,6 +227,46 @@
   </div>
 </div>
 
+<!-- 合併選擇器 Modal -->
+<div class="modal-bg" id="mergePickerModal" style="display:none">
+  <div class="modal" style="max-width:480px">
+    <div class="modal-hdr">
+      <h2 id="mergePickerTitle">🔀 合併到另一個人脈</h2>
+      <button class="btn-icon" id="btnCloseMergeModal" title="關閉">✕</button>
+    </div>
+    <div class="modal-body">
+      <p class="muted" style="margin:0 0 10px 0;font-size:13px;line-height:1.5">
+        選擇要把 <b id="mergeFromName"></b> 合併到的目標人脈。<br>
+        合併後 <b id="mergeFromName2"></b> 的資料會搬進對方，這張卡會進垃圾桶（可救回）。
+      </p>
+      <input type="text" id="mergeSearch" placeholder="🔍 搜尋姓名 / 電話 / 公司..." autocomplete="off">
+      <div id="mergeCandidates" class="rel-candidates" style="margin-top:10px;max-height:50vh;overflow-y:auto"></div>
+    </div>
+    <div class="modal-ftr">
+      <span style="flex:1"></span>
+      <button class="btn" id="btnCancelMergeModal">取消</button>
+    </div>
+  </div>
+</div>
+
+<!-- 合併確認 Modal -->
+<div class="modal-bg" id="mergeConfirmModal" style="display:none">
+  <div class="modal" style="max-width:520px">
+    <div class="modal-hdr">
+      <h2>確認合併</h2>
+      <button class="btn-icon" id="btnCloseMergeConfirm" title="關閉">✕</button>
+    </div>
+    <div class="modal-body" id="mergeConfirmBody">
+      <!-- 由 JS 動態填入對照資訊 -->
+    </div>
+    <div class="modal-ftr">
+      <span style="flex:1"></span>
+      <button class="btn" id="btnCancelMergeConfirm">取消</button>
+      <button class="btn btn-primary" id="btnDoMerge">確定合併</button>
+    </div>
+  </div>
+</div>
+
 <!-- Toast 訊息 -->
 <div class="toast" id="toast"></div>
 

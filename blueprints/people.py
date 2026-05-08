@@ -333,6 +333,167 @@ def get_person(pid):
         return jsonify({"error": str(e)}), 500
 
 
+@bp.route("/api/people/<from_id>/merge-to/<to_id>", methods=["POST"])
+def merge_person(from_id, to_id):
+    """把 from_id 的所有資料合併到 to_id，並把 from 軟刪除（deleted_at）。
+
+    合併規則：
+    - 主檔欄位：B 為主，B 空才用 A
+    - active_roles: union
+    - 備註：B + 分隔線 + A
+    - 子集合（contacts / files / properties / timeline / roles）：A 全部複製到 B
+    - 引用更新：其他 person 的 relations / members 中指到 A 的，改指 B
+    - 寫一筆 timeline 到 B：「合併自 XXX」
+    - A 設 deleted_at（軟刪除，可從垃圾桶救回）
+    """
+    if from_id == to_id:
+        return jsonify({"error": "不能跟自己合併"}), 400
+    email, err = require_user()
+    if err:
+        return jsonify({"error": err[0]}), err[1]
+    db = get_db()
+    if db is None:
+        return jsonify({"error": "Firestore 未初始化"}), 503
+
+    try:
+        from_ref = db.collection("people").document(from_id)
+        to_ref = db.collection("people").document(to_id)
+        from_snap = from_ref.get()
+        to_snap = to_ref.get()
+        if not from_snap.exists or not to_snap.exists:
+            return jsonify({"error": "找不到其中一筆人脈"}), 404
+        from_doc = from_snap.to_dict() or {}
+        to_doc = to_snap.to_dict() or {}
+        if from_doc.get("created_by") != email or to_doc.get("created_by") != email:
+            return jsonify({"error": "權限不足"}), 403
+
+        # 1. 合併主檔欄位（B 為主，B 空才用 A 的）
+        patch = {}
+        for k in ("phone", "note", "card_color", "avatar_b64", "company", "display_name", "birthday", "zodiac", "gender", "warning"):
+            if not to_doc.get(k) and from_doc.get(k):
+                patch[k] = from_doc[k]
+        # 備註特別：兩邊都有 → 串起來
+        if to_doc.get("note") and from_doc.get("note") and to_doc["note"] != from_doc["note"]:
+            patch["note"] = f"{to_doc['note']}\n\n--- 合併自「{from_doc.get('name','')}」---\n{from_doc['note']}"
+        # contacts / addresses 陣列：合併（去重）
+        def _merge_list(a, b, key=None):
+            out = list(a or [])
+            seen = {(x.get(key) if key else x) for x in out} if a else set()
+            for x in (b or []):
+                k = x.get(key) if key else x
+                if k not in seen:
+                    out.append(x)
+                    seen.add(k)
+            return out
+        merged_contacts = _merge_list(to_doc.get("contacts"), from_doc.get("contacts"), key="value")
+        if merged_contacts != (to_doc.get("contacts") or []):
+            patch["contacts"] = merged_contacts
+        merged_addresses = _merge_list(to_doc.get("addresses"), from_doc.get("addresses"), key="value")
+        if merged_addresses != (to_doc.get("addresses") or []):
+            patch["addresses"] = merged_addresses
+        # active_roles: union
+        union_roles = list(set((to_doc.get("active_roles") or []) + (from_doc.get("active_roles") or [])))
+        if set(union_roles) != set(to_doc.get("active_roles") or []):
+            patch["active_roles"] = union_roles
+        # legacy id：B 沒就用 A 的
+        for k in ("legacy_buyer_id", "legacy_seller_id"):
+            if not to_doc.get(k) and from_doc.get(k):
+                patch[k] = from_doc[k]
+        # has_completed_deal: OR
+        if from_doc.get("has_completed_deal"):
+            patch["has_completed_deal"] = True
+
+        if patch:
+            patch["updated_at"] = server_timestamp()
+            to_ref.update(patch)
+
+        # 2. 子集合搬遷（A → B）
+        moved = {"contacts": 0, "files": 0, "properties": 0, "timeline": 0, "roles": 0}
+        for sub in ("contacts", "files", "properties", "timeline"):
+            for d in from_ref.collection(sub).stream():
+                data = d.to_dict() or {}
+                # 用同 doc id 寫到 B（避免重新命名 / 同 id 不會衝突因為兩邊獨立 collection）
+                to_ref.collection(sub).document(d.id).set(data, merge=True)
+                moved[sub] += 1
+        # roles：B 已有的角色保留 B 的；A 才有的接過來
+        existing_role_ids = {r.id for r in to_ref.collection("roles").stream()}
+        for d in from_ref.collection("roles").stream():
+            if d.id in existing_role_ids:
+                continue  # B 已有此角色
+            data = d.to_dict() or {}
+            to_ref.collection("roles").document(d.id).set(data)
+            moved["roles"] += 1
+
+        # 3. 更新其他 person 文件中指到 from 的引用
+        # relations: 其他人的 relations 陣列裡 person_id == from_id → 改成 to_id
+        # members: 其他人的 members 陣列裡含 from_id → 改成 to_id
+        # 因為陣列是字串/物件，要全量讀+寫回
+        all_people = db.collection("people").where("created_by", "==", email).stream()
+        for p in all_people:
+            if p.id in (from_id, to_id):
+                continue
+            pd = p.to_dict() or {}
+            updates = {}
+            # relations
+            rels = pd.get("relations") or []
+            new_rels = []
+            rels_changed = False
+            for r in rels:
+                if isinstance(r, dict) and r.get("person_id") == from_id:
+                    r2 = dict(r)
+                    r2["person_id"] = to_id
+                    new_rels.append(r2)
+                    rels_changed = True
+                else:
+                    new_rels.append(r)
+            if rels_changed:
+                updates["relations"] = new_rels
+            # members（群組）
+            members = pd.get("members") or []
+            if from_id in members:
+                new_members = [(to_id if m == from_id else m) for m in members]
+                # 去重（萬一群組已有 to_id）
+                seen = set()
+                deduped = []
+                for m in new_members:
+                    if m not in seen:
+                        seen.add(m)
+                        deduped.append(m)
+                updates["members"] = deduped
+            if updates:
+                p.reference.update(updates)
+
+        # 4. timeline 寫一筆「合併自 XXX」到 B
+        to_ref.collection("timeline").add({
+            "type": "merged_from",
+            "display_text": f"合併自「{from_doc.get('name', '')}」",
+            "payload": {
+                "from_id": from_id,
+                "from_name": from_doc.get("name"),
+                "moved": moved,
+            },
+            "occurred_at": server_timestamp(),
+            "created_by": email,
+        })
+
+        # 5. 軟刪除 from
+        from_ref.update({
+            "deleted_at": server_timestamp(),
+            "merged_into": to_id,
+            "updated_at": server_timestamp(),
+        })
+
+        return jsonify({
+            "ok": True,
+            "moved": moved,
+            "to_id": to_id,
+            "from_id": from_id,
+        })
+    except Exception as e:
+        logging.warning("Merge failed: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
 @bp.route("/api/people/find", methods=["GET"])
 def find_person_by_name():
     """以姓名（+電話為輔助）搜尋既有人脈。
