@@ -726,6 +726,9 @@
     });
   }
 
+  // 清掉所有可能的 drop 視覺指示 class
+  const DROP_CLASSES = ['drop-target','drop-center','drop-before','drop-after','drop-above','drop-below','drop-left','drop-right'];
+
   function onCardDragOver(e) {
     if (!_draggingId) return;
     e.preventDefault();
@@ -733,65 +736,73 @@
     const card = e.currentTarget;
     if (card.dataset.id === _draggingId) return;
 
-    // 分區 / 看板模式 + 同類拖曳 → 顯示插入線（reorder 模式）
-    // 卡片網格模式：人→人 預設是建群組，僅 Shift 時 reorder；不畫線（避免誤導）
     const targetKind = card.dataset.kind || 'person';
-    const isReorderContext =
-      state.viewMode !== 'grid' ||
-      e.shiftKey ||
-      _draggingKind === 'group' ||
-      targetKind === 'group';
-
-    if (isReorderContext) {
-      const rect = card.getBoundingClientRect();
-      const isUpperHalf = (e.clientY - rect.top) < (rect.height / 2);
-      // 先清掉自己舊的 marker
-      card.classList.remove('drop-before', 'drop-after', 'drop-target');
-      card.classList.add(isUpperHalf ? 'drop-before' : 'drop-after');
-    } else {
-      card.classList.remove('drop-before', 'drop-after');
+    // 拖人 → 群組卡：整張高亮（綠色），加成員特例
+    if (_draggingKind === 'person' && targetKind === 'group') {
+      card.classList.remove(...DROP_CLASSES);
       card.classList.add('drop-target');
+      return;
+    }
+    // 算四邊距離（以 0-1 比例表示）
+    const rect = card.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / rect.width;
+    const y = (e.clientY - rect.top)  / rect.height;
+    const sides = { left: x, right: 1 - x, above: y, below: 1 - y };
+    let nearestKey = 'left';
+    let nearestDist = sides.left;
+    for (const k of ['right','above','below']) {
+      if (sides[k] < nearestDist) { nearestDist = sides[k]; nearestKey = k; }
+    }
+    card.classList.remove(...DROP_CLASSES);
+    if (nearestDist < 0.25) {
+      card.classList.add('drop-' + nearestKey);   // 邊緣 → 插入線
+    } else {
+      card.classList.add('drop-center');           // 中央 → 跳選擇器
     }
   }
+
   function onCardDragLeave(e) {
-    e.currentTarget.classList.remove('drop-target', 'drop-before', 'drop-after');
+    e.currentTarget.classList.remove(...DROP_CLASSES);
   }
 
   function onCardDrop(e) {
     e.preventDefault();
     e.stopPropagation();
     const card = e.currentTarget;
-    const insertBefore = card.classList.contains('drop-before');
-    const insertAfter = card.classList.contains('drop-after');
-    card.classList.remove('drop-target', 'drop-before', 'drop-after');
+    const cls = card.classList;
+    const insertBefore = cls.contains('drop-left')  || cls.contains('drop-above') || cls.contains('drop-before');
+    const insertAfter  = cls.contains('drop-right') || cls.contains('drop-below') || cls.contains('drop-after');
+    const isCenter     = cls.contains('drop-center');
+    cls.remove(...DROP_CLASSES);
     const targetId = card.dataset.id;
     const targetKind = card.dataset.kind || 'person';
     if (!_draggingId || _draggingId === targetId) return;
 
-    // 拖人 → 群組：加成員
-    if (_draggingKind === 'person' && targetKind === 'group' && !insertBefore && !insertAfter) {
+    // 拖人 → 群組：加成員（不分位置）
+    if (_draggingKind === 'person' && targetKind === 'group') {
       addMemberToGroup(targetId, _draggingId);
       return;
     }
-    // 拖人 → 人（卡片網格模式 + 沒按 Shift）：預設建群組
-    if (_draggingKind === 'person' && targetKind === 'person' && state.viewMode === 'grid' && !e.shiftKey) {
+
+    // 中央 → 跳建群組/合併選擇器
+    if (isCenter) {
       const draggedPerson = state.people.find(p => p.id === _draggingId);
-      const targetPerson = state.people.find(p => p.id === targetId);
-      offerDropAction(draggedPerson, targetPerson);
+      const targetPerson  = state.people.find(p => p.id === targetId);
+      if (draggedPerson && targetPerson) offerDropAction(draggedPerson, targetPerson);
       return;
     }
-    // 其他狀況都是 reorder（含 sections / kanban view）
-    // 若是分區/看板，且目標卡片所屬 bucket 與拖曳卡不同，先改 bucket 再 reorder
+
+    // 邊緣 → reorder（含跨 bucket 改 bucket 再 reorder）
     const containerEl = card.closest('[data-bucket]');
     const targetBucket = containerEl ? containerEl.dataset.bucket : null;
     const dragged = state.people.find(p => p.id === _draggingId) || state.groups.find(g => g.id === _draggingId);
+    const position = insertAfter ? 'after' : 'before';
     if (targetBucket && dragged && dragged.bucket !== targetBucket) {
       changeBucket(_draggingId, targetBucket).then(() => {
-        // bucket 變更後再 reorder
-        reorderCard(_draggingId, targetId, insertAfter ? 'after' : 'before');
+        reorderCard(_draggingId, targetId, position);
       });
     } else {
-      reorderCard(_draggingId, targetId, insertAfter ? 'after' : 'before');
+      reorderCard(_draggingId, targetId, position);
     }
   }
 
@@ -860,8 +871,8 @@
 
   function onCardDragEnd(e) {
     e.currentTarget.classList.remove('dragging');
-    $$('.drop-target, .drop-before, .drop-after, .is-drop-target').forEach(el => {
-      el.classList.remove('drop-target', 'drop-before', 'drop-after', 'is-drop-target');
+    $$('.drop-target, .drop-center, .drop-before, .drop-after, .drop-above, .drop-below, .drop-left, .drop-right, .is-drop-target').forEach(el => {
+      el.classList.remove(...DROP_CLASSES, 'is-drop-target');
     });
     _wasDragging = true;
     setTimeout(() => { _wasDragging = false; }, 50);

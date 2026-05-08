@@ -605,12 +605,16 @@ input, select, textarea { font-family: inherit; font-size: inherit; color: inher
    滑鼠在卡片上半 → 上方藍光
    下半 → 下方藍光
 ============================================ */
-.person-card.drop-before,
-.person-card.drop-after {
+.person-card.drop-before, .person-card.drop-after,
+.person-card.drop-above, .person-card.drop-below,
+.person-card.drop-left,  .person-card.drop-right {
   position: relative;
 }
+/* 上下橫線（drop-above / drop-below；drop-before/after 是舊別名相容） */
 .person-card.drop-before::before,
-.person-card.drop-after::after {
+.person-card.drop-after::after,
+.person-card.drop-above::before,
+.person-card.drop-below::after {
   content: '';
   position: absolute;
   left: -2px;
@@ -623,8 +627,36 @@ input, select, textarea { font-family: inherit; font-size: inherit; color: inher
   pointer-events: none;
   z-index: 5;
 }
-.person-card.drop-before::before { top: -7px; }
-.person-card.drop-after::after { bottom: -7px; }
+.person-card.drop-before::before, .person-card.drop-above::before { top: -7px; }
+.person-card.drop-after::after,   .person-card.drop-below::after  { bottom: -7px; }
+
+/* 左右直線（drop-left / drop-right） */
+.person-card.drop-left::before,
+.person-card.drop-right::after {
+  content: '';
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 3px;
+  background: var(--primary);
+  border-radius: 2px;
+  box-shadow: 0 0 8px var(--primary), 0 0 4px var(--primary);
+  animation: drop-line-pulse 0.8s ease-in-out infinite;
+  pointer-events: none;
+  z-index: 5;
+}
+.person-card.drop-left::before  { left: -7px; }
+.person-card.drop-right::after  { right: -7px; }
+
+/* 中央 = 整張卡橘色發光，暗示「丟下會跳建群組/合併選擇器」 */
+.person-card.drop-center {
+  border-color: #f59e0b !important;
+  border-width: 2px;
+  background: #fff7ed !important;
+  transform: scale(1.02);
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.4);
+  transition: all 0.1s;
+}
 
 @keyframes drop-line-pulse {
   0%, 100% { opacity: 0.7; }
