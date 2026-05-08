@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>查找 / 建立人脈</title>
+  <link rel="icon" type="image/png" href="/static/favicon.png">
+  <link rel="stylesheet" href="/static/people.css">
+  <style>
+    body { background: var(--bg, #f9fafb); padding: 0; margin: 0; }
+    .foc-wrap {
+      max-width: 480px;
+      margin: 50px auto;
+      background: var(--bg-elev);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      box-shadow: var(--shadow-lg);
+    }
+    .foc-spinner {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 30px 0;
+      color: var(--text-muted);
+    }
+    .foc-title { font-size: 18px; font-weight: 700; margin-bottom: 12px; }
+    .foc-info {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 14px;
+      margin-bottom: 14px;
+      font-size: 13.5px;
+    }
+    .foc-info-row { display: flex; gap: 8px; margin: 3px 0; }
+    .foc-info-label { color: var(--text-muted); width: 70px; flex-shrink: 0; }
+    .foc-actions {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+      margin-top: 16px;
+    }
+    .foc-existing-list {
+      max-height: 300px;
+      overflow-y: auto;
+      margin: 12px 0;
+    }
+    .foc-existing-item {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      margin-bottom: 6px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      transition: all 0.1s;
+    }
+    .foc-existing-item:hover {
+      border-color: var(--primary);
+      background: var(--primary-bg);
+    }
+    .foc-avatar {
+      width: 36px; height: 36px;
+      border-radius: 50%;
+      background: var(--primary-bg);
+      color: var(--primary-dark);
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 700;
+      flex-shrink: 0;
+      overflow: hidden;
+    }
+    .foc-avatar img { width: 100%; height: 100%; object-fit: cover; }
+    .foc-meta { flex: 1; }
+    .foc-meta-name { font-weight: 600; font-size: 14px; }
+    .foc-meta-sub { font-size: 12px; color: var(--text-muted); }
+  </style>
+</head>
+<body>
+  <div class="foc-wrap" id="focWrap">
+    <div class="foc-spinner">⏳ 查詢中...</div>
+  </div>
+
+<script>
+  // 從 query string 取得參數
+  const Q = {
+    name: {{ q_name|tojson }},
+    phone: {{ q_phone|tojson }},
+    contact: {{ q_contact|tojson }},
+    address: {{ q_address|tojson }},
+    category: {{ q_category|tojson }},
+    price: {{ q_price|tojson }},
+    case_name: {{ q_case|tojson }},
+    prop_id: {{ q_prop|tojson }},
+  };
+
+  function escapeHtml(s) {
+    if (s == null) return '';
+    return String(s)
+      .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;').replaceAll("'", '&#039;');
+  }
+
+  async function api(method, url, body) {
+    const opts = { method, headers: {}, credentials: 'same-origin' };
+    if (body !== undefined) {
+      opts.headers['Content-Type'] = 'application/json';
+      opts.body = JSON.stringify(body);
+    }
+    const r = await fetch(url, opts);
+    let data = null;
+    try { data = await r.json(); } catch (_) {}
+    if (!r.ok) throw new Error((data && data.error) || `HTTP ${r.status}`);
+    return data;
+  }
+
+  function renderInfo() {
+    const items = [];
+    if (Q.name) items.push(['👤 所有權人', Q.name]);
+    if (Q.phone) items.push(['📱 電話', Q.phone]);
+    if (Q.contact) items.push(['🤝 連絡人', Q.contact]);
+    if (Q.case_name) items.push(['🏠 案名', Q.case_name]);
+    if (Q.address) items.push(['📍 地址', Q.address]);
+    if (Q.category) items.push(['🏷 類別', Q.category]);
+    if (Q.price) items.push(['💰 售價', Q.price + '萬']);
+    return `<div class="foc-info">
+      ${items.map(([l, v]) => `
+        <div class="foc-info-row">
+          <span class="foc-info-label">${escapeHtml(l)}</span>
+          <span>${escapeHtml(v)}</span>
+        </div>
+      `).join('')}
+    </div>`;
+  }
+
+  function renderExistingList(items) {
+    return `<div class="foc-existing-list">
+      ${items.map(p => `
+        <div class="foc-existing-item" onclick="window.location.href='/people/${escapeHtml(p.id)}'">
+          <div class="foc-avatar">${p.avatar_b64 ? `<img src="${p.avatar_b64.startsWith('data:') ? p.avatar_b64 : 'data:image/jpeg;base64,'+p.avatar_b64}">` : escapeHtml((p.name||'?').charAt(0))}</div>
+          <div class="foc-meta">
+            <div class="foc-meta-name">${escapeHtml(p.name)}</div>
+            <div class="foc-meta-sub">
+              ${p.phone ? '📱 ' + escapeHtml(p.phone) : ''}
+              ${(p.active_roles || []).length ? ' ・ 角色：' + (p.active_roles||[]).join('、') : ''}
+            </div>
+          </div>
+          <span style="color:var(--primary);">→</span>
+        </div>
+      `).join('')}
+    </div>`;
+  }
+
+  async function createNewPersonAndProperty() {
+    try {
+      // 1. 建立 person
+      const person = await api('POST', '/api/people', {
+        name: Q.name,
+        phone: Q.phone || null,
+        is_group: false,
+        bucket: 'normal',
+        source: { channel: 'other', note: '從物件庫匯入' },
+        active_roles: ['seller'],
+      });
+
+      // 2. 加入物件
+      if (Q.prop_id || Q.case_name) {
+        await api('POST', `/api/people/${person.id}/properties`, {
+          source: 'company_property',
+          source_ref: Q.prop_id || null,
+          case_name: Q.case_name || null,
+          address: Q.address || null,
+          category: Q.category || null,
+          price: Q.price ? parseFloat(Q.price) : null,
+          contact_name: Q.contact || null,
+          contact_phone: Q.phone || null,
+          is_selling: true,
+        });
+      }
+
+      // 3. 跳到詳情頁
+      window.location.href = `/people/${person.id}`;
+    } catch (e) {
+      alert('建立失敗：' + e.message);
+      // 重新渲染
+      main();
+    }
+  }
+
+  async function main() {
+    const wrap = document.getElementById('focWrap');
+    if (!Q.name) {
+      wrap.innerHTML = '<div class="foc-title">缺少姓名參數</div>';
+      return;
+    }
+    try {
+      const data = await api('GET', `/api/people/find?name=${encodeURIComponent(Q.name)}&phone=${encodeURIComponent(Q.phone||'')}`);
+      const items = data.items || [];
+      if (items.length === 1) {
+        // 唯一吻合 → 直接跳
+        window.location.href = `/people/${items[0].id}`;
+        return;
+      }
+      if (items.length > 1) {
+        // 多人同名 → 列出讓使用者選
+        wrap.innerHTML = `
+          <div class="foc-title">🔍 找到 ${items.length} 位同名人脈</div>
+          <p style="color:var(--text-muted);font-size:13px;">點選對應的人，或在最下方建立新人。</p>
+          ${renderInfo()}
+          ${renderExistingList(items)}
+          <div class="foc-actions">
+            <button class="btn btn-primary" onclick="createNewPersonAndProperty()">＋ 都不是，建立新人</button>
+          </div>
+        `;
+        return;
+      }
+      // 沒找到 → 詢問建立
+      wrap.innerHTML = `
+        <div class="foc-title">人脈中尚無「${escapeHtml(Q.name)}」</div>
+        <p style="color:var(--text-muted);font-size:13px;">要從這個物件資料建立新人脈嗎？</p>
+        ${renderInfo()}
+        <div class="foc-actions">
+          <button class="btn" onclick="window.close()">取消</button>
+          <button class="btn btn-primary" onclick="createNewPersonAndProperty()">＋ 建立此人</button>
+        </div>
+      `;
+    } catch (e) {
+      wrap.innerHTML = `<div class="foc-title" style="color:var(--danger);">查詢失敗：${escapeHtml(e.message)}</div>`;
+    }
+  }
+
+  main();
+</script>
+</body>
+</html>

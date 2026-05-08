@@ -333,6 +333,50 @@ def get_person(pid):
         return jsonify({"error": str(e)}), 500
 
 
+@bp.route("/api/people/find", methods=["GET"])
+def find_person_by_name():
+    """以姓名（+電話為輔助）搜尋既有人脈。
+    Query: name=...（必填）、phone=...（選填，協助同名分辨）
+    回傳：{"items": [{id, name, phone, active_roles, ...}]}
+    """
+    email, err = require_user()
+    if err:
+        return jsonify({"error": err[0]}), err[1]
+    db = get_db()
+    if db is None:
+        return jsonify({"error": "Firestore 未初始化"}), 503
+    name = (request.args.get("name") or "").strip()
+    if not name:
+        return jsonify({"items": []})
+    phone = (request.args.get("phone") or "").strip()
+    try:
+        # Firestore 中文姓名可以用 == 精準比對
+        q = db.collection("people").where("created_by", "==", email).where("name", "==", name)
+        items = []
+        for d in q.stream():
+            data = d.to_dict() or {}
+            if data.get("is_group") or data.get("deleted_at"):
+                continue
+            data["id"] = d.id
+            items.append(data)
+        # 若有電話，把吻合的排前
+        if phone:
+            import re
+            np = re.sub(r"[\s\-\(\)]", "", phone)
+            def _score(p):
+                phones = [p.get("phone")] + [c.get("value") for c in (p.get("contacts") or []) if c.get("value")]
+                for ph in phones:
+                    if not ph: continue
+                    if re.sub(r"[\s\-\(\)]", "", str(ph)) == np:
+                        return 0
+                return 1
+            items.sort(key=_score)
+        return jsonify({"items": items})
+    except Exception as e:
+        logging.warning("find_person_by_name failed: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
 @bp.route("/api/people/<pid>", methods=["PATCH"])
 def patch_person(pid):
     """部分更新主檔欄位（白名單），不需重新驗證整份 payload。

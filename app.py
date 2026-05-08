@@ -110,6 +110,36 @@ def groups_page():
     return redirect("/?show=groups")
 
 
+@app.route("/find-or-create")
+def find_or_create_page():
+    """智慧路由：從 LIBRARY/其他工具點所有權人時跳這裡。
+    URL 參數：?name=李文雄&prop=cp_doc_id&phone=...&contact=...&address=...&category=...&price=...&case=...
+    流程：
+      - 名稱 + 電話比對既有 people
+      - 找到 → 直接 redirect 到 /people/<id>
+      - 沒找到 → 顯示確認頁，點「建立」 → 建 person + 加 property → 跳 /people/<new_id>
+    """
+    PORTAL_URL = (os.environ.get("PORTAL_URL") or "").strip()
+    if not session.get("user_email"):
+        from flask import redirect
+        return redirect(PORTAL_URL or "/auth/portal-login")
+    from flask import request as _req
+    return render_template(
+        "find_or_create.html",
+        user_email=session.get("user_email", ""),
+        user_name=session.get("user_name", ""),
+        portal_url=PORTAL_URL,
+        q_name=_req.args.get("name", ""),
+        q_phone=_req.args.get("phone", ""),
+        q_contact=_req.args.get("contact", ""),
+        q_address=_req.args.get("address", ""),
+        q_category=_req.args.get("category", ""),
+        q_price=_req.args.get("price", ""),
+        q_case=_req.args.get("case", ""),
+        q_prop=_req.args.get("prop", ""),
+    )
+
+
 @app.route("/api/client-log", methods=["POST"])
 def api_client_log():
     """接收前端 JS 錯誤，記錄至 Cloud Logging。"""
