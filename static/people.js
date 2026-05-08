@@ -1429,8 +1429,8 @@
     // 顯示模式
     $$('.show-mode-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === state.showMode));
     // 排序按鈕文字
-    const cur = SORT_MODES.find(m => m.value === state.sortMode);
-    if ($('#sortBtn')) $('#sortBtn').textContent = cur ? cur.label : '🔀 排序';
+    const curSortMode = SORT_MODES.find(m => m.value === state.sortMode);
+    if ($('#sortBtn')) $('#sortBtn').textContent = curSortMode ? curSortMode.label : '🔀 排序';
   }
 
   function bindEvents() {
