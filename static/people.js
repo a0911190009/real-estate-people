@@ -651,7 +651,7 @@
     if (_draggingKind === 'person' && targetKind === 'person' && state.viewMode === 'grid' && !e.shiftKey) {
       const draggedPerson = state.people.find(p => p.id === _draggingId);
       const targetPerson = state.people.find(p => p.id === targetId);
-      offerCreateGroup(draggedPerson, targetPerson);
+      offerDropAction(draggedPerson, targetPerson);
       return;
     }
     // 其他狀況都是 reorder（含 sections / kanban view）
@@ -684,6 +684,26 @@
     } catch (e) {
       showToast('加成員失敗：' + e.message, 'danger');
     }
+  }
+
+  // 拖人 → 人時跳的選擇器：建群組 vs 合併
+  function offerDropAction(personA, personB) {
+    if (!personA || !personB) return;
+    $('#dropFromName').textContent = personA.name;
+    $('#dropToName').textContent = personB.name;
+    $('#dropActionModal').style.display = 'flex';
+    $('#btnDropGroup').onclick = () => {
+      closeDropAction();
+      offerCreateGroup(personA, personB);
+    };
+    $('#btnDropMerge').onclick = () => {
+      closeDropAction();
+      // 走既有合併確認 modal（會顯示對照）
+      confirmMerge(personA, personB);
+    };
+  }
+  function closeDropAction() {
+    $('#dropActionModal').style.display = 'none';
   }
 
   async function offerCreateGroup(personA, personB) {
@@ -1357,6 +1377,12 @@
     $('#btnCloseTrash2')?.addEventListener('click', closeTrash);
     $('#trashModal')?.addEventListener('click', (e) => {
       if (e.target.id === 'trashModal') closeTrash();
+    });
+
+    // 拖卡片到人時的選擇 modal（建群組 / 合併）
+    $('#btnCloseDropAction')?.addEventListener('click', closeDropAction);
+    $('#dropActionModal')?.addEventListener('click', (e) => {
+      if (e.target.id === 'dropActionModal') closeDropAction();
     });
 
     // 合併人脈 modal

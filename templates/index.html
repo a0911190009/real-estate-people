@@ -227,6 +227,34 @@
   </div>
 </div>
 
+<!-- 拖卡片到人脈時的動作選擇 Modal -->
+<div class="modal-bg" id="dropActionModal" style="display:none">
+  <div class="modal" style="max-width:380px">
+    <div class="modal-hdr">
+      <h2>要做什麼？</h2>
+      <button class="btn-icon" id="btnCloseDropAction" title="關閉">✕</button>
+    </div>
+    <div class="modal-body" style="text-align:center;padding:20px">
+      <p style="margin:0 0 16px;font-size:14px;line-height:1.6">
+        把「<b id="dropFromName"></b>」拖到「<b id="dropToName"></b>」上
+      </p>
+      <div style="display:flex;gap:12px;justify-content:center">
+        <button class="btn paste-target-btn" id="btnDropGroup" type="button">
+          <div style="font-size:32px">👨‍👩‍👧</div>
+          <div>建群組</div>
+          <small style="font-size:11px;color:var(--text-muted)">兩人變成新群組成員</small>
+        </button>
+        <button class="btn btn-primary paste-target-btn" id="btnDropMerge" type="button">
+          <div style="font-size:32px">🔀</div>
+          <div>合併</div>
+          <small style="font-size:11px;color:#fff;opacity:0.85">A 併到 B，A 進垃圾桶</small>
+        </button>
+      </div>
+      <p class="muted" style="font-size:11px;margin:14px 0 0">Esc 取消</p>
+    </div>
+  </div>
+</div>
+
 <!-- 合併選擇器 Modal -->
 <div class="modal-bg" id="mergePickerModal" style="display:none">
   <div class="modal" style="max-width:480px">
