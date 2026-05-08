@@ -20,8 +20,39 @@
     },
     showMode: 'all',  // 'all' | 'people' | 'groups'
     viewMode: localStorage.getItem('people_view_mode') || 'grid',  // 'grid' | 'sections' | 'kanban'
+    sortMode: 'auto', // 'auto' | 'name_asc' | 'name_desc' | 'contact_asc/desc' | 'created_asc/desc'
+    arrangements: [],  // 命名整理（從 /api/people/sort-arrangements 拉）
     sellerRolesCache: {},
   };
+
+  // 排序模式定義
+  const SORT_MODES = [
+    { value: 'auto',         label: '🔀 自訂順序' },
+    { value: 'name_asc',     label: '🔤 姓名 A→Z' },
+    { value: 'name_desc',    label: '🔤 姓名 Z→A' },
+    { value: 'contact_desc', label: '🕓 上次聯絡 新→舊' },
+    { value: 'contact_asc',  label: '🕓 上次聯絡 舊→新' },
+    { value: 'created_desc', label: '✨ 加入時間 新→舊' },
+    { value: 'created_asc',  label: '✨ 加入時間 舊→新' },
+  ];
+
+  // 統一比較函式：依 sortMode 回傳 a-b
+  function compareItems(a, b, mode) {
+    const sortKey = (x) => x.last_contact_at || x.updated_at || '';
+    if (mode === 'auto' || !mode) {
+      if (a.sort_order != null && b.sort_order != null) return a.sort_order - b.sort_order;
+      if (a.sort_order != null) return -1;
+      if (b.sort_order != null) return 1;
+      return (sortKey(b) || '').localeCompare(sortKey(a) || '');
+    }
+    if (mode === 'name_asc')     return (a.name || '').localeCompare(b.name || '', 'zh-TW');
+    if (mode === 'name_desc')    return (b.name || '').localeCompare(a.name || '', 'zh-TW');
+    if (mode === 'contact_desc') return (b.last_contact_at || '').localeCompare(a.last_contact_at || '');
+    if (mode === 'contact_asc')  return (a.last_contact_at || '').localeCompare(b.last_contact_at || '');
+    if (mode === 'created_desc') return (b.created_at || '').localeCompare(a.created_at || '');
+    if (mode === 'created_asc')  return (a.created_at || '').localeCompare(b.created_at || '');
+    return 0;
+  }
 
   // ─── 角色標籤對應顯示 ───
   const ROLE_DISPLAY = {
@@ -101,10 +132,112 @@
       state.groups = all.filter(x => x.is_group);
       $('#statusBar').textContent = `共 ${state.people.length} 位人脈、${state.groups.length} 個群組`;
       render();
+      // 同步載入 arrangements（與 people 並行也行，這裡 fire-and-forget）
+      loadArrangements().catch(() => {});
     } catch (e) {
       $('#statusBar').textContent = `載入失敗：${e.message}`;
       showToast('載入失敗：' + e.message, 'danger');
     }
+  }
+
+  // ─── 命名整理（sort arrangements） ───
+  async function loadArrangements() {
+    try {
+      const data = await api('GET', '/api/people/sort-arrangements');
+      state.arrangements = data.items || [];
+      renderSortDropdown();
+    } catch (_) { state.arrangements = []; }
+  }
+
+  function renderSortDropdown() {
+    const dd = $('#sortDropdown');
+    if (!dd) return;
+    const modeItems = SORT_MODES.map(m => `
+      <div class="sort-dd-item${state.sortMode === m.value ? ' active' : ''}" data-act="setmode" data-mode="${m.value}">
+        <span class="sort-dd-item-name">${m.label}</span>
+      </div>
+    `).join('');
+    const arrItems = (state.arrangements || []).length === 0
+      ? '<div style="padding:6px 12px;font-size:12px;color:var(--text-muted)">尚無儲存的整理</div>'
+      : state.arrangements.map(a => `
+          <div class="sort-dd-item" data-act="apply" data-aid="${escapeHtml(a.id)}" data-name="${escapeHtml(a.name)}">
+            <span class="sort-dd-item-name">📑 ${escapeHtml(a.name)}</span>
+            <span class="sort-dd-arr-actions">
+              <button class="sort-dd-arr-btn" data-act-inner="rename" data-aid="${escapeHtml(a.id)}" data-name="${escapeHtml(a.name)}" title="改名">✏️</button>
+              <button class="sort-dd-arr-btn" data-act-inner="delete" data-aid="${escapeHtml(a.id)}" data-name="${escapeHtml(a.name)}" title="刪除">🗑</button>
+            </span>
+          </div>
+        `).join('');
+    dd.innerHTML = `
+      <div class="sort-dd-section-title">排序方式（不影響資料）</div>
+      ${modeItems}
+      <div class="sort-dd-divider"></div>
+      <div class="sort-dd-section-title">📑 我的整理（會寫回卡片順序）</div>
+      ${arrItems}
+      <div class="sort-dd-divider"></div>
+      <div class="sort-dd-item" data-act="save" style="color:var(--primary);font-weight:600">
+        <span class="sort-dd-item-name">📸 儲存目前順序為...</span>
+      </div>
+    `;
+    // 同步按鈕文字
+    const cur = SORT_MODES.find(m => m.value === state.sortMode);
+    $('#sortBtn').textContent = cur ? cur.label : '🔀 排序';
+  }
+
+  async function saveArrangement() {
+    const name = prompt('命名此順序：\n\n例：拜年順序 / 業績優先 / 按地區整理');
+    if (!name || !name.trim()) return;
+    try {
+      await api('POST', '/api/people/sort-arrangements', { name: name.trim() });
+      await loadArrangements();
+      showToast(`✓ 已儲存：${name.trim()}`);
+    } catch (e) { showToast('儲存失敗：' + e.message, 'danger'); }
+  }
+
+  async function applyArrangement(aid, name) {
+    if (!confirm(`套用「${name}」會把目前每張卡片的順序覆寫成這個整理。\n\n（不影響資料內容，只是改順序。要先存目前順序嗎？可先取消。）\n\n繼續套用？`)) return;
+    try {
+      const r = await api('POST', `/api/people/sort-arrangements/${aid}/apply`);
+      state.sortMode = 'auto';
+      saveFilters();
+      syncFiltersToUI();
+      await loadPeople();
+      showToast(`✓ 已套用「${name}」（更新 ${r.applied || 0} 張卡片）`);
+    } catch (e) { showToast('套用失敗：' + e.message, 'danger'); }
+  }
+
+  async function renameArrangement(aid, oldName) {
+    const name = prompt('新名稱：', oldName);
+    if (!name || !name.trim() || name.trim() === oldName) return;
+    try {
+      await api('PATCH', `/api/people/sort-arrangements/${aid}`, { name: name.trim() });
+      await loadArrangements();
+    } catch (e) { showToast('改名失敗：' + e.message, 'danger'); }
+  }
+
+  async function deleteArrangement(aid, name) {
+    if (!confirm(`刪除「${name}」？\n\n（只是刪除這個命名整理快照，不影響資料。）`)) return;
+    try {
+      await api('DELETE', `/api/people/sort-arrangements/${aid}`);
+      await loadArrangements();
+      showToast(`已刪除「${name}」`);
+    } catch (e) { showToast('刪除失敗：' + e.message, 'danger'); }
+  }
+
+  function setSortMode(mode) {
+    state.sortMode = mode;
+    saveFilters();
+    renderSortDropdown();
+    render();
+    closeSortDropdown();
+  }
+
+  function openSortDropdown() {
+    renderSortDropdown();
+    $('#sortDropdown').style.display = 'block';
+  }
+  function closeSortDropdown() {
+    $('#sortDropdown').style.display = 'none';
   }
 
   // ─── Sidebar 各篩選分類計數（人 + 群組總和）───
@@ -324,17 +457,10 @@
     const peopleItems = showPeople ? state.people.filter(passes) : [];
     const groupItems  = showGroups ? state.groups.filter(passesG) : [];
 
-    const sortKey = (it) => it.last_contact_at || it.updated_at || '';
     return [
       ...peopleItems.map(p => ({ kind: 'person', data: p })),
       ...groupItems.map(g => ({ kind: 'group', data: g })),
-    ].sort((a, b) => {
-      const ao = a.data.sort_order, bo = b.data.sort_order;
-      if (ao != null && bo != null) return ao - bo;
-      if (ao != null) return -1;
-      if (bo != null) return 1;
-      return (sortKey(b.data) || '').localeCompare(sortKey(a.data) || '');
-    });
+    ].sort((a, b) => compareItems(a.data, b.data, state.sortMode));
   }
 
   // 同 passesFilters 但忽略 bucketFilter（給分區/看板用）
@@ -764,6 +890,14 @@
   }
 
   async function reorderCard(draggedId, targetId, position = 'before') {
+    // 安全網：非「自訂順序」模式拖曳時自動切回 auto，避免使用者疑惑
+    if (state.sortMode !== 'auto') {
+      state.sortMode = 'auto';
+      saveFilters();
+      syncFiltersToUI();
+      showToast('已切換到自訂順序', 'info');
+    }
+
     // 分區/看板模式：不靠 bucketFilter（顯示 4 個 bucket），其他模式照舊
     const isMultiBucket = state.viewMode !== 'grid';
     const passes  = isMultiBucket ? passesFiltersIgnoreBucket  : passesFilters;
@@ -1254,6 +1388,7 @@
         extraFilters: state.extraFilters,
         searchTerm: state.searchTerm,
         showMode: state.showMode,
+        sortMode: state.sortMode,
       }));
     } catch (_) {}
   }
@@ -1267,6 +1402,9 @@
       }
       if (typeof saved.searchTerm === 'string') state.searchTerm = saved.searchTerm;
       if (saved.showMode) state.showMode = saved.showMode;
+      if (saved.sortMode && SORT_MODES.find(m => m.value === saved.sortMode)) {
+        state.sortMode = saved.sortMode;
+      }
     } catch (_) {}
   }
   // 把 state 同步回 UI 控制項（checkbox/active tab/search input）
@@ -1290,6 +1428,9 @@
     if ($('#searchInput') && typeof state.searchTerm === 'string') $('#searchInput').value = state.searchTerm;
     // 顯示模式
     $$('.show-mode-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === state.showMode));
+    // 排序按鈕文字
+    const cur = SORT_MODES.find(m => m.value === state.sortMode);
+    if ($('#sortBtn')) $('#sortBtn').textContent = cur ? cur.label : '🔀 排序';
   }
 
   function bindEvents() {
@@ -1377,6 +1518,45 @@
     $('#btnCloseTrash2')?.addEventListener('click', closeTrash);
     $('#trashModal')?.addEventListener('click', (e) => {
       if (e.target.id === 'trashModal') closeTrash();
+    });
+
+    // 排序下拉
+    $('#sortBtn')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const dd = $('#sortDropdown');
+      if (dd.style.display === 'block') closeSortDropdown();
+      else openSortDropdown();
+    });
+    document.addEventListener('click', (e) => {
+      const wrap = $('#sortWrap');
+      if (wrap && !wrap.contains(e.target)) closeSortDropdown();
+    });
+    // 點下拉項目
+    $('#sortDropdown')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      // 內層按鈕（改名/刪除）優先處理
+      const innerBtn = e.target.closest('[data-act-inner]');
+      if (innerBtn) {
+        e.stopPropagation();
+        const innerAct = innerBtn.dataset.actInner;
+        const aid = innerBtn.dataset.aid;
+        const name = innerBtn.dataset.name;
+        if (innerAct === 'rename') renameArrangement(aid, name);
+        else if (innerAct === 'delete') deleteArrangement(aid, name);
+        return;
+      }
+      const item = e.target.closest('.sort-dd-item');
+      if (!item) return;
+      const act = item.dataset.act;
+      if (act === 'setmode') {
+        setSortMode(item.dataset.mode);
+      } else if (act === 'save') {
+        closeSortDropdown();
+        saveArrangement();
+      } else if (act === 'apply') {
+        closeSortDropdown();
+        applyArrangement(item.dataset.aid, item.dataset.name);
+      }
     });
 
     // 拖卡片到人時的選擇 modal（建群組 / 合併）

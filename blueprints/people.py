@@ -730,6 +730,193 @@ def purge_person(pid):
         return jsonify({"error": str(e)}), 500
 
 
+def _snapshot_current_orders(db, email):
+    """讀取此用戶所有 people 文件的 sort_order，回傳 {pid: order}（已軟刪略過）"""
+    out = {}
+    for d in db.collection("people").where("created_by", "==", email).stream():
+        data = d.to_dict() or {}
+        if data.get("deleted_at"):
+            continue
+        if data.get("sort_order") is not None:
+            out[d.id] = float(data["sort_order"])
+    return out
+
+
+@bp.route("/api/people/sort-arrangements", methods=["GET"])
+def list_sort_arrangements():
+    """列出此使用者所有命名整理。存放在 user_settings/{email}.sort_arrangements 陣列。"""
+    email, err = require_user()
+    if err:
+        return jsonify({"error": err[0]}), err[1]
+    db = get_db()
+    if db is None:
+        return jsonify({"error": "Firestore 未初始化"}), 503
+    try:
+        snap = db.collection("user_settings").document(email).get()
+        items = (snap.to_dict() or {}).get("sort_arrangements", []) if snap.exists else []
+        # 排序：created_at desc（新的在前）
+        items_clean = []
+        for it in items:
+            it2 = dict(it)
+            for k in ("created_at", "updated_at"):
+                v = it2.get(k)
+                if hasattr(v, "isoformat"):
+                    try: it2[k] = v.isoformat()
+                    except Exception: pass
+            items_clean.append(it2)
+        items_clean.sort(key=lambda x: x.get("created_at") or "", reverse=True)
+        return jsonify({"items": items_clean})
+    except Exception as e:
+        logging.warning("list_sort_arrangements failed: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@bp.route("/api/people/sort-arrangements", methods=["POST"])
+def create_sort_arrangement():
+    """命名儲存目前順序：拍照 sort_order → 存進 user_settings 陣列。"""
+    email, err = require_user()
+    if err:
+        return jsonify({"error": err[0]}), err[1]
+    db = get_db()
+    if db is None:
+        return jsonify({"error": "Firestore 未初始化"}), 503
+
+    data = request.get_json(silent=True) or {}
+    name = str(data.get("name", "") or "").strip()
+    if not name:
+        return jsonify({"error": "請提供 name"}), 400
+
+    try:
+        order_map = _snapshot_current_orders(db, email)
+        if not order_map:
+            return jsonify({"error": "目前沒有拖曳順序可儲存。請先拖曳卡片排個順序再來。"}), 400
+
+        from datetime import datetime, timezone
+        now_iso = datetime.now(timezone.utc).isoformat()
+        new_item = {
+            "id": uuid.uuid4().hex,
+            "name": name,
+            "order_map": order_map,
+            "created_at": now_iso,
+            "updated_at": now_iso,
+        }
+        # 用 ArrayUnion 加進陣列
+        ref = db.collection("user_settings").document(email)
+        snap = ref.get()
+        if snap.exists:
+            existing = (snap.to_dict() or {}).get("sort_arrangements", []) or []
+            existing.append(new_item)
+            ref.update({"sort_arrangements": existing})
+        else:
+            ref.set({"sort_arrangements": [new_item]})
+        return jsonify(new_item), 201
+    except Exception as e:
+        logging.warning("create_sort_arrangement failed: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@bp.route("/api/people/sort-arrangements/<aid>", methods=["PATCH"])
+def rename_sort_arrangement(aid):
+    """重命名某個整理。"""
+    email, err = require_user()
+    if err:
+        return jsonify({"error": err[0]}), err[1]
+    db = get_db()
+    if db is None:
+        return jsonify({"error": "Firestore 未初始化"}), 503
+    data = request.get_json(silent=True) or {}
+    name = str(data.get("name", "") or "").strip()
+    if not name:
+        return jsonify({"error": "請提供 name"}), 400
+
+    try:
+        from datetime import datetime, timezone
+        ref = db.collection("user_settings").document(email)
+        snap = ref.get()
+        if not snap.exists:
+            return jsonify({"error": "找不到"}), 404
+        items = (snap.to_dict() or {}).get("sort_arrangements", []) or []
+        found = False
+        for it in items:
+            if it.get("id") == aid:
+                it["name"] = name
+                it["updated_at"] = datetime.now(timezone.utc).isoformat()
+                found = True
+                break
+        if not found:
+            return jsonify({"error": "找不到此整理"}), 404
+        ref.update({"sort_arrangements": items})
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@bp.route("/api/people/sort-arrangements/<aid>", methods=["DELETE"])
+def delete_sort_arrangement(aid):
+    """刪除某個整理。"""
+    email, err = require_user()
+    if err:
+        return jsonify({"error": err[0]}), err[1]
+    db = get_db()
+    if db is None:
+        return jsonify({"error": "Firestore 未初始化"}), 503
+    try:
+        ref = db.collection("user_settings").document(email)
+        snap = ref.get()
+        if not snap.exists:
+            return jsonify({"ok": True})
+        items = (snap.to_dict() or {}).get("sort_arrangements", []) or []
+        new_items = [it for it in items if it.get("id") != aid]
+        ref.update({"sort_arrangements": new_items})
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@bp.route("/api/people/sort-arrangements/<aid>/apply", methods=["POST"])
+def apply_sort_arrangement(aid):
+    """把命名整理的 order_map 寫回每筆 people.sort_order。"""
+    email, err = require_user()
+    if err:
+        return jsonify({"error": err[0]}), err[1]
+    db = get_db()
+    if db is None:
+        return jsonify({"error": "Firestore 未初始化"}), 503
+    try:
+        ref = db.collection("user_settings").document(email)
+        snap = ref.get()
+        if not snap.exists:
+            return jsonify({"error": "找不到"}), 404
+        items = (snap.to_dict() or {}).get("sort_arrangements", []) or []
+        target = next((it for it in items if it.get("id") == aid), None)
+        if not target:
+            return jsonify({"error": "找不到此整理"}), 404
+        order_map = target.get("order_map") or {}
+        if not order_map:
+            return jsonify({"error": "整理內無資料"}), 400
+
+        # 批次寫回 sort_order（驗證每筆是該用戶的）
+        batch = db.batch()
+        count = 0
+        for pid, so in order_map.items():
+            pref = db.collection("people").document(pid)
+            psnap = pref.get()
+            if not psnap.exists:
+                continue
+            if (psnap.to_dict() or {}).get("created_by") != email:
+                continue
+            batch.update(pref, {
+                "sort_order": float(so),
+                "updated_at": server_timestamp(),
+            })
+            count += 1
+        batch.commit()
+        return jsonify({"ok": True, "applied": count, "name": target.get("name")})
+    except Exception as e:
+        logging.warning("apply_sort_arrangement failed: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
 @bp.route("/api/people/reorder", methods=["POST"])
 def reorder_people():
     """

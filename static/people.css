@@ -380,6 +380,78 @@ input, select, textarea { font-family: inherit; font-size: inherit; color: inher
 }
 
 /* ============================================
+   排序下拉（toolbar）
+============================================ */
+.sort-wrap { position: relative; }
+.sort-btn {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 7px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--text);
+  white-space: nowrap;
+}
+.sort-btn:hover { background: var(--bg); }
+.sort-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 50;
+  min-width: 240px;
+  max-width: 320px;
+  max-height: 60vh;
+  overflow-y: auto;
+  background: white;
+  color: #1f2937;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+  padding: 4px;
+  font-size: 13px;
+  user-select: none;
+}
+.sort-dd-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.sort-dd-item:hover { background: #eff6ff; color: #1d4ed8; }
+.sort-dd-item.active { background: var(--primary); color: white; }
+.sort-dd-item-name { flex: 1; }
+.sort-dd-divider { height: 1px; background: #e5e7eb; margin: 4px 0; }
+.sort-dd-section-title {
+  font-size: 11px; font-weight: 600;
+  color: var(--text-muted);
+  padding: 6px 12px 2px;
+  letter-spacing: 0.04em;
+}
+.sort-dd-arr-actions {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.sort-dd-arr-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 3px 6px;
+  font-size: 12px;
+  border-radius: 4px;
+  color: var(--text-muted);
+}
+.sort-dd-arr-btn:hover { background: rgba(0,0,0,0.06); color: var(--text); }
+
+@media (max-width: 768px) {
+  .sort-dropdown { right: auto; left: 0; min-width: 220px; }
+}
+
+/* ============================================
    檢視方式切換按鈕（toolbar）
 ============================================ */
 .view-mode {
