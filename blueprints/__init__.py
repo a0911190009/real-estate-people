@@ -6,5 +6,6 @@ from .roles import bp as roles_bp
 from .contacts import bp as contacts_bp
 from .groups import bp as groups_bp
 from .feedback import bp as feedback_bp
+from .properties import bp as properties_bp
 
-__all__ = ["people_bp", "roles_bp", "contacts_bp", "groups_bp", "feedback_bp"]
+__all__ = ["people_bp", "roles_bp", "contacts_bp", "groups_bp", "feedback_bp", "properties_bp"]

@@ -132,6 +132,12 @@
         state.mentionedItems = [];
       }
 
+      // 撈物件清單（賣方視角）
+      try {
+        const pr = await api('GET', `/api/people/${PID}/properties`);
+        state.properties = pr.items || [];
+      } catch (_) { state.properties = []; }
+
       renderAll();
     } catch (e) {
       $('#detailTitle').textContent = '載入失敗';
@@ -148,10 +154,58 @@
     renderRoles();
     renderRelations();
     renderMembers();
+    renderProperties();
     renderMentioned();
     renderFiles();
     renderTimeline();
     renderContacts();
+  }
+
+  // ═════════════════════════════════════════
+  //  物件清單（賣方視角）
+  // ═════════════════════════════════════════
+  function renderProperties() {
+    const sec = $('#propertiesSection');
+    const list = $('#propertiesList');
+    const cnt = $('#propertiesCount');
+    if (!sec || !list) return;
+    const items = state.properties || [];
+    // 群組不顯示；沒物件且不是賣方角色就不顯示
+    const isSeller = (state.person.active_roles || []).includes('seller');
+    if (state.person.is_group || (items.length === 0 && !isSeller)) {
+      sec.style.display = 'none';
+      return;
+    }
+    sec.style.display = 'block';
+    cnt.textContent = items.length ? `（${items.length} 件）` : '';
+    if (items.length === 0) {
+      list.innerHTML = '<p class="muted" style="padding:8px;font-size:13px;">尚無物件</p>';
+      return;
+    }
+    list.innerHTML = items.map(p => {
+      const sellingBadge = p.is_selling
+        ? '<span class="prop-badge selling">銷售中</span>'
+        : '<span class="prop-badge inactive">已下架</span>';
+      const sourceBadge = p.source === 'company_property'
+        ? `<a class="prop-source-link" href="${PORTAL_URL || ''}" data-cp="${escapeHtml(p.source_ref || '')}" target="_blank" title="跳到物件庫">📦 物件庫</a>`
+        : (p.source === 'seller_prospect' ? '<span class="prop-source-link">🌱 培養中</span>' : '<span class="prop-source-link">✏️ 手動</span>');
+      const cat = p.category ? `<span class="prop-cat">[${escapeHtml(p.category)}]</span>` : '';
+      const price = p.price != null ? `${p.price}萬` : '?';
+      return `
+        <div class="prop-row" data-id="${escapeHtml(p.id)}">
+          <div class="prop-row-top">
+            ${cat}
+            <span class="prop-name">${escapeHtml(p.case_name || p.address || '(無案名)')}</span>
+            <span class="prop-price">${price}</span>
+          </div>
+          <div class="prop-row-meta">
+            ${sellingBadge}
+            ${sourceBadge}
+            ${p.address ? `<span class="prop-addr">${escapeHtml(p.address)}</span>` : ''}
+          </div>
+        </div>
+      `;
+    }).join('');
   }
 
   // ═════════════════════════════════════════
