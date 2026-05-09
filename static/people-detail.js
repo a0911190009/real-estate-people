@@ -169,10 +169,17 @@
     const list = $('#propertiesList');
     const cnt = $('#propertiesCount');
     if (!sec || !list) return;
+
+    // 群組：動態聯集成員的 properties
+    if (state.person.is_group) {
+      renderGroupProperties(sec, list, cnt);
+      return;
+    }
+
     const items = state.properties || [];
-    // 群組不顯示；沒物件且不是賣方角色就不顯示
+    // 沒物件且不是賣方角色就不顯示
     const isSeller = (state.person.active_roles || []).includes('seller');
-    if (state.person.is_group || (items.length === 0 && !isSeller)) {
+    if (items.length === 0 && !isSeller) {
       sec.style.display = 'none';
       return;
     }
@@ -182,31 +189,82 @@
       list.innerHTML = '<p class="muted" style="padding:8px;font-size:13px;">尚無物件</p>';
       return;
     }
-    list.innerHTML = items.map(p => {
-      const sellingBadge = p.is_selling
-        ? '<span class="prop-badge selling">銷售中</span>'
-        : '<span class="prop-badge inactive">已下架</span>';
-      const LIBRARY_URL = 'https://real-estate-library-334765337861.asia-east1.run.app';
-      const sourceBadge = p.source === 'company_property' && p.source_ref
-        ? `<a class="prop-source-link" href="${LIBRARY_URL}/?tab=company&cp=${encodeURIComponent(p.source_ref)}" target="_blank" rel="noopener" title="跳到物件庫看此物件">📦 物件庫 ↗</a>`
-        : (p.source === 'seller_prospect' ? '<span class="prop-source-link">🌱 培養中</span>' : '<span class="prop-source-link">✏️ 手動</span>');
-      const cat = p.category ? `<span class="prop-cat">[${escapeHtml(p.category)}]</span>` : '';
-      const price = p.price != null ? `${p.price}萬` : '?';
-      return `
-        <div class="prop-row" data-id="${escapeHtml(p.id)}">
-          <div class="prop-row-top">
-            ${cat}
-            <span class="prop-name">${escapeHtml(p.case_name || p.address || '(無案名)')}</span>
-            <span class="prop-price">${price}</span>
-          </div>
-          <div class="prop-row-meta">
-            ${sellingBadge}
-            ${sourceBadge}
-            ${p.address ? `<span class="prop-addr">${escapeHtml(p.address)}</span>` : ''}
-          </div>
+    list.innerHTML = items.map(p => renderPropertyRow(p)).join('');
+  }
+
+  function renderPropertyRow(p, ownerLabel) {
+    const sellingBadge = p.is_selling
+      ? '<span class="prop-badge selling">銷售中</span>'
+      : '<span class="prop-badge inactive">已下架</span>';
+    const LIBRARY_URL = 'https://real-estate-library-334765337861.asia-east1.run.app';
+    const sourceBadge = p.source === 'company_property' && p.source_ref
+      ? `<a class="prop-source-link" href="${LIBRARY_URL}/?tab=company&cp=${encodeURIComponent(p.source_ref)}" target="_blank" rel="noopener" title="跳到物件庫看此物件">📦 物件庫 ↗</a>`
+      : (p.source === 'seller_prospect' ? '<span class="prop-source-link">🌱 培養中</span>' : '<span class="prop-source-link">✏️ 手動</span>');
+    const cat = p.category ? `<span class="prop-cat">[${escapeHtml(p.category)}]</span>` : '';
+    const price = p.price != null ? `${p.price}萬` : '?';
+    const ownerTag = ownerLabel ? `<span class="prop-owner-tag">📍 來自：${escapeHtml(ownerLabel)}</span>` : '';
+    return `
+      <div class="prop-row" data-id="${escapeHtml(p.id || '')}">
+        <div class="prop-row-top">
+          ${cat}
+          <span class="prop-name">${escapeHtml(p.case_name || p.address || '(無案名)')}</span>
+          <span class="prop-price">${price}</span>
         </div>
-      `;
-    }).join('');
+        <div class="prop-row-meta">
+          ${sellingBadge}
+          ${sourceBadge}
+          ${ownerTag}
+          ${p.address ? `<span class="prop-addr">${escapeHtml(p.address)}</span>` : ''}
+        </div>
+      </div>
+    `;
+  }
+
+  // 群組詳情頁的物件清單：動態撈所有成員的 properties，合併去重
+  async function renderGroupProperties(sec, list, cnt) {
+    const memberIds = state.person.members || [];
+    if (memberIds.length === 0) {
+      sec.style.display = 'none';
+      return;
+    }
+    sec.style.display = 'block';
+    cnt.textContent = '（載入中…）';
+    list.innerHTML = '<p class="muted" style="padding:8px;font-size:13px;">載入成員物件中...</p>';
+    try {
+      // 並行撈每位成員的 properties
+      const results = await Promise.all(
+        memberIds.map(mid => api('GET', `/api/people/${mid}/properties`).catch(() => ({ items: [] })))
+      );
+      // 平面化 + 加上「來自誰」標籤
+      const merged = [];
+      results.forEach((res, idx) => {
+        const owner = state.memberDetails?.[idx];
+        const ownerName = owner?.name || '?';
+        (res.items || []).forEach(p => {
+          merged.push({ ...p, _ownerName: ownerName });
+        });
+      });
+      // 去重（依 source_ref / case_name）
+      const seen = new Set();
+      const dedup = [];
+      for (const p of merged) {
+        const key = p.source_ref || p.case_name || p.id;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        dedup.push(p);
+      }
+      // 銷售中優先排序
+      dedup.sort((a, b) => (a.is_selling ? 0 : 1) - (b.is_selling ? 0 : 1));
+
+      cnt.textContent = dedup.length ? `（${dedup.length} 件 · 來自 ${memberIds.length} 位成員）` : '';
+      if (dedup.length === 0) {
+        list.innerHTML = '<p class="muted" style="padding:8px;font-size:13px;">成員都沒有物件</p>';
+        return;
+      }
+      list.innerHTML = dedup.map(p => renderPropertyRow(p, p._ownerName)).join('');
+    } catch (e) {
+      list.innerHTML = `<p class="muted" style="padding:8px;color:var(--danger)">載入失敗：${escapeHtml(e.message)}</p>`;
+    }
   }
 
   // ═════════════════════════════════════════
