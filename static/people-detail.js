@@ -186,8 +186,9 @@
       const sellingBadge = p.is_selling
         ? '<span class="prop-badge selling">銷售中</span>'
         : '<span class="prop-badge inactive">已下架</span>';
-      const sourceBadge = p.source === 'company_property'
-        ? `<a class="prop-source-link" href="${PORTAL_URL || ''}" data-cp="${escapeHtml(p.source_ref || '')}" target="_blank" title="跳到物件庫">📦 物件庫</a>`
+      const LIBRARY_URL = 'https://real-estate-library-334765337861.asia-east1.run.app';
+      const sourceBadge = p.source === 'company_property' && p.source_ref
+        ? `<a class="prop-source-link" href="${LIBRARY_URL}/?tab=company&cp=${encodeURIComponent(p.source_ref)}" target="_blank" rel="noopener" title="跳到物件庫看此物件">📦 物件庫 ↗</a>`
         : (p.source === 'seller_prospect' ? '<span class="prop-source-link">🌱 培養中</span>' : '<span class="prop-source-link">✏️ 手動</span>');
       const cat = p.category ? `<span class="prop-cat">[${escapeHtml(p.category)}]</span>` : '';
       const price = p.price != null ? `${p.price}萬` : '?';
