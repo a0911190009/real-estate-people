@@ -19,7 +19,7 @@ from datetime import datetime, timezone, timedelta
 
 from flask import Blueprint, request, jsonify
 
-from auth import require_user
+from auth import require_user, verify_service_key
 from firestore_client import get_db, server_timestamp
 from gcs_helpers import gcs_upload_image, gcs_delete_blob, gcs_serve_blob
 from audio_helper import transcribe_audio, transcribe_image_conversation
@@ -308,6 +308,54 @@ def create_person():
     except Exception as e:
         logging.warning("People create failed: %s", e)
         return jsonify({"error": str(e)}), 500
+
+
+@bp.route("/api/people/create-for-agent", methods=["POST"])
+def create_person_for_agent():
+    """供 Portal AI Agent 呼叫：用 X-Service-Key 驗證 + body.email 指定使用者。
+    body: {email, name, phone, note, role}
+      role: 可選，buyer/seller/introducer/peer/landlord/friend/relative
+    """
+    if not verify_service_key():
+        return jsonify({"ok": False, "error": "未授權"}), 401
+    db = get_db()
+    if db is None:
+        return jsonify({"ok": False, "error": "Firestore 未初始化"}), 503
+
+    data = request.get_json(silent=True) or {}
+    email = str(data.get("email", "")).strip()
+    if not email:
+        return jsonify({"ok": False, "error": "email 必填"}), 400
+
+    payload, msg = _build_person_payload(data, email, is_create=True)
+    if payload is None:
+        return jsonify({"ok": False, "error": msg}), 400
+
+    try:
+        ref = db.collection("people").document()
+        ref.set(payload)
+        ref.collection("timeline").add({
+            "type": "person_created",
+            "display_text": f"建立人脈：{payload['name']}（由 AI 助理新增）",
+            "payload": {"name": payload["name"], "via": "agent"},
+            "occurred_at": server_timestamp(),
+            "created_by": email,
+        })
+        # 若有指定角色，順便建立 active role
+        role = str(data.get("role", "") or "").strip()
+        VALID_ROLES = {"buyer", "seller", "introducer", "peer", "landlord", "friend", "relative", "owner_friend"}
+        if role in VALID_ROLES:
+            ref.collection("roles").document(role).set({
+                "type": role,
+                "status": "active",
+                "created_at": server_timestamp(),
+                "updated_at": server_timestamp(),
+            })
+            ref.update({"active_roles": [role]})
+        return jsonify({"ok": True, "id": ref.id, "name": payload["name"], "role": role or None}), 201
+    except Exception as e:
+        logging.warning("Agent create person failed: %s", e)
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @bp.route("/api/people/<pid>", methods=["GET"])
