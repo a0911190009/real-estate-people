@@ -201,7 +201,7 @@ def _doc_to_dict(doc):
     d = doc.to_dict() or {}
     d["id"] = doc.id
     # timestamp 序列化
-    for key in ("created_at", "updated_at", "last_contact_at", "deleted_at"):
+    for key in ("created_at", "updated_at", "last_contact_at", "deleted_at", "opened_at"):
         v = d.get(key)
         if v is not None and hasattr(v, "isoformat"):
             d[key] = v.isoformat()
@@ -626,6 +626,66 @@ def patch_person(pid):
         return jsonify(_doc_to_dict(ref.get()))
     except Exception as e:
         logging.warning("Patch person failed: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@bp.route("/api/people/<pid>/mark-opened", methods=["POST"])
+def mark_person_opened(pid):
+    """標記此人脈/群組「已被點開看過」（用於『最近新增』置頂帶歸位）。
+
+    只在 opened_at 還沒設過時才寫入（冪等），且不動 updated_at /
+    last_contact_at —— 單純看一下不算互動，不影響排序與聯絡時間。
+    """
+    email, err = require_user()
+    if err:
+        return jsonify({"error": err[0]}), err[1]
+    db = get_db()
+    if db is None:
+        return jsonify({"error": "Firestore 未初始化"}), 503
+    try:
+        ref = db.collection("people").document(pid)
+        snap = ref.get()
+        if not snap.exists or (snap.to_dict() or {}).get("created_by") != email:
+            return jsonify({"error": "找不到此人"}), 404
+        d = snap.to_dict() or {}
+        if not d.get("opened_at"):
+            ref.update({"opened_at": server_timestamp()})
+        return jsonify({"ok": True})
+    except Exception as e:
+        logging.warning("Mark opened failed: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@bp.route("/api/people/mark-all-seen", methods=["POST"])
+def mark_all_seen():
+    """『全部歸位』：把目前使用者所有尚未看過（無 opened_at）的人脈/群組
+    一次標記為已看過，置頂帶會清空。
+    """
+    email, err = require_user()
+    if err:
+        return jsonify({"error": err[0]}), err[1]
+    db = get_db()
+    if db is None:
+        return jsonify({"error": "Firestore 未初始化"}), 503
+    try:
+        q = db.collection("people").where("created_by", "==", email)
+        batch = db.batch()
+        n = 0
+        for doc in q.stream():
+            d = doc.to_dict() or {}
+            if d.get("opened_at") or d.get("deleted_at"):
+                continue
+            batch.update(doc.reference, {"opened_at": server_timestamp()})
+            n += 1
+            # Firestore 單一 batch 上限 500，分批 commit
+            if n % 450 == 0:
+                batch.commit()
+                batch = db.batch()
+        if n % 450 != 0:
+            batch.commit()
+        return jsonify({"ok": True, "marked": n})
+    except Exception as e:
+        logging.warning("Mark all seen failed: %s", e)
         return jsonify({"error": str(e)}), 500
 
 

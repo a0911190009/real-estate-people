@@ -95,6 +95,12 @@
         api('GET', `/api/people/${PID}/contacts`),
       ]);
       state.person = person;
+      // 第一次點開看詳情 → 標記已看過，回列表就會從「最近新增」置頂帶歸位
+      // （fire-and-forget，不阻塞畫面；不算互動，不影響聯絡時間/排序）
+      if (!person.opened_at) {
+        api('POST', `/api/people/${PID}/mark-opened`).catch(() => {});
+        person.opened_at = new Date().toISOString();
+      }
       state.roles = rolesData.items || [];
       state.timeline = tlData.items || [];
       state.contacts = ctData.items || [];

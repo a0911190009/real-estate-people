@@ -967,6 +967,62 @@ a.prop-source-link:hover { color: var(--primary); text-decoration: underline; }
   gap: 12px;
 }
 
+/* ============================================
+   「最近新增」置頂帶（剛匯入/新增的暫時浮在最上面）
+============================================ */
+.new-band {
+  grid-column: 1 / -1;                 /* 跨整行 */
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%);
+  border: 1px solid #fdba74;
+  border-left: 4px solid #f97316;      /* 橘色＝「新」的提示色 */
+  border-radius: var(--radius);
+  flex-wrap: wrap;
+}
+.new-band-toggle {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: #c2410c;
+  padding: 2px 4px;
+}
+.new-band-title {
+  font-weight: 700;
+  color: #9a3412;
+}
+.new-band-hint {
+  font-size: 0.8rem;
+  color: #c2410c;
+  opacity: 0.85;
+}
+.new-band-clear {
+  margin-left: auto;
+  background: #fff;
+  border: 1px solid #fdba74;
+  color: #c2410c;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.new-band-clear:hover {
+  background: #f97316;
+  color: #fff;
+  border-color: #f97316;
+}
+.new-band-divider {
+  grid-column: 1 / -1;                 /* 跨整行 */
+  text-align: center;
+  font-size: 0.78rem;
+  color: var(--text-muted, #94a3b8);
+  padding: 4px 0;
+  margin-top: 4px;
+}
+
 .person-card {
   background: var(--bg-elev);
   border: 1px solid var(--border);

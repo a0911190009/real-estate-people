@@ -54,6 +54,18 @@
     return 0;
   }
 
+  // ─── 「最近新增」置頂帶 ───
+  // 規則：建立 7 天內，且還沒被點開看過（無 opened_at）→ 暫時浮在清單最上面，
+  // 方便剛匯入/新增後找得到。點開詳情頁看過、或按「全部歸位」後就回正常排序。
+  const NEW_BAND_DAYS = 7;
+
+  function isNewUnseen(d) {
+    if (!d || d.opened_at) return false;          // 看過了就不算新
+    const ts = Date.parse(d.created_at || '');
+    if (!ts) return false;                         // 沒有建立時間就不判定
+    return (Date.now() - ts) < NEW_BAND_DAYS * 86400 * 1000;
+  }
+
   // ─── 角色標籤對應顯示 ───
   const ROLE_DISPLAY = {
     buyer: { label: '買方', cls: 'role-buyer' },
@@ -524,15 +536,71 @@
       return;
     }
     empty.style.display = 'none';
-    grid.innerHTML = items.map(it => it.kind === 'group' ? renderGroupCard(it.data) : renderCard(it.data)).join('');
+
+    // 「最近新增」置頂帶：把剛建立又還沒看過的拆出來，浮在最上面（新→舊）
+    const newItems = items
+      .filter(it => isNewUnseen(it.data))
+      .sort((a, b) => (b.data.created_at || '').localeCompare(a.data.created_at || ''));
+    const restItems = items.filter(it => !isNewUnseen(it.data));
+    const renderItem = it => it.kind === 'group' ? renderGroupCard(it.data) : renderCard(it.data);
+
+    let html = '';
+    if (newItems.length) {
+      const collapsed = localStorage.getItem('people_newband_collapsed') === '1';
+      html += `
+        <div class="new-band" id="newBandHeader">
+          <button class="new-band-toggle" id="newBandToggle" title="收合 / 展開">
+            ${collapsed ? '▶' : '▼'}
+          </button>
+          <span class="new-band-title">🆕 最近新增（${newItems.length}）</span>
+          <span class="new-band-hint">點開看過就會自動歸位</span>
+          <button class="new-band-clear" id="newBandClear">全部歸位</button>
+        </div>`;
+      if (!collapsed) {
+        html += newItems.map(renderItem).join('');
+        if (restItems.length) {
+          html += `<div class="new-band-divider">── 以下依目前排序 ──</div>`;
+        }
+      }
+    }
+    html += restItems.map(renderItem).join('');
+    grid.innerHTML = html;
 
     const peopleCount = items.filter(i => i.kind === 'person').length;
     const groupCount = items.length - peopleCount;
+    const newNote = newItems.length ? `　·　🆕 ${newItems.length} 筆置頂` : '';
     $('#statusBar').textContent =
       `顯示 ${peopleCount} 位人脈 + ${groupCount} 個群組` +
-      `（共 ${state.people.length} / ${state.groups.length}）`;
+      `（共 ${state.people.length} / ${state.groups.length}）${newNote}`;
+
+    // 置頂帶的「收合」與「全部歸位」按鈕
+    const tgl = $('#newBandToggle');
+    if (tgl) tgl.addEventListener('click', () => {
+      const cur = localStorage.getItem('people_newband_collapsed') === '1';
+      localStorage.setItem('people_newband_collapsed', cur ? '0' : '1');
+      renderGrid();
+    });
+    const clr = $('#newBandClear');
+    if (clr) clr.addEventListener('click', markAllSeen);
 
     attachCardHandlers(grid);
+  }
+
+  // 「全部歸位」：一次把所有未看過的標記為已看過，置頂帶清空
+  async function markAllSeen() {
+    if (!confirm('把目前「最近新增」的全部歸位到正常排序？')) return;
+    try {
+      await api('POST', '/api/people/mark-all-seen');
+      // 本地同步：所有沒 opened_at 的補上時間戳，立即反映、不必重新拉
+      const nowIso = new Date().toISOString();
+      [...state.people, ...state.groups].forEach(d => {
+        if (!d.opened_at) d.opened_at = nowIso;
+      });
+      render();
+      showToast('已全部歸位', 'success');
+    } catch (e) {
+      showToast('歸位失敗：' + e.message, 'danger');
+    }
   }
 
   // ─── B：分區瀏覽（4 個 bucket 一頁看） ───
