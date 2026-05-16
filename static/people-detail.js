@@ -206,6 +206,7 @@
       } catch (_) { state.properties = []; }
 
       renderAll();
+      autoFixAvatarWhitespace();          // 自動修掉舊圖純色空白邊（fire-and-forget）
     } catch (e) {
       $('#detailTitle').textContent = '載入失敗';
       showToast('載入失敗：' + e.message, 'danger');
@@ -731,6 +732,51 @@
     } catch (e) {
       showToast('上傳失敗：' + e.message, 'danger');
     }
+  }
+
+  // 打開客戶頁時，自動偵測並修掉「烤進存檔圖的純色空白邊」（白/灰/黑/透明）。
+  // 只動真的有純色邊的舊壞圖；正常照片邊緣非純色 → detectContentBox 回 null → 不碰。
+  // 修一次即止：修完的新圖沒有純色邊，下次不會再觸發（天然冪等）。
+  let _avatarFixDone = false;
+  async function autoFixAvatarWhitespace() {
+    if (_avatarFixDone) return;
+    const p = state.person;
+    if (!p || p.is_group || !p.avatar_b64) return;
+    _avatarFixDone = true;
+    const raw = p.avatar_b64;
+    const src = raw.startsWith('data:') ? raw : 'data:image/jpeg;base64,' + raw;
+    const img = await new Promise((res) => {
+      const im = new Image();
+      im.onload = () => res(im);
+      im.onerror = () => res(null);
+      im.src = src;
+    });
+    if (!img) return;
+    const box = detectContentBox(img);
+    if (!box) return;                                   // 沒純色空白邊（正常照片）→ 不動
+    if (box.w > img.width * 0.9 && box.h > img.height * 0.9) return;  // 邊太小，不值得動
+
+    const OUT = AVATAR_SIZE;
+    const scale = OUT / Math.min(box.w, box.h);         // 主體較短邊填滿 → 一定無白
+    const drawW = img.width * scale, drawH = img.height * scale;
+    let ox = OUT / 2 - (box.x + box.w / 2) * scale;
+    let oy = OUT / 2 - (box.y + box.h / 2) * scale;
+    ox = Math.min(0, Math.max(OUT - drawW, ox));        // 夾住，保證鋪滿
+    oy = Math.min(0, Math.max(OUT - drawH, oy));
+    const cv = document.createElement('canvas');
+    cv.width = OUT; cv.height = OUT;
+    const ctx = cv.getContext('2d');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, OUT, OUT);
+    ctx.drawImage(img, ox, oy, drawW, drawH);
+    const b64 = cv.toDataURL('image/jpeg', 0.9);
+    try {
+      await api('POST', `/api/people/${PID}/avatar`, { avatar_b64: b64 });
+      state.person.avatar_b64 = b64;
+      renderHero();
+      if (typeof setPageIdentity === 'function') setPageIdentity(state.person);
+      showToast('已自動修正頭像空白邊');
+    } catch (_) { /* 失敗無妨，使用者仍可手動點頭像用裁切框 */ }
   }
 
   // 裁切框拖曳（滑鼠 + 觸控統一用 pointer 事件）
