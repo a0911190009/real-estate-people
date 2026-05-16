@@ -71,6 +71,24 @@ app.register_blueprint(properties_bp)
 #  系統路由
 # ══════════════════════════════════════════
 
+@app.after_request
+def _no_html_cache(resp):
+    """HTML 頁面一律不准快取（含 iOS bfcache）。
+    根治「部署了新版、使用者卻一直看到舊頁面（連整頁版面/內嵌樣式都是舊的）」
+    —— no-store 會讓瀏覽器每次都重抓 HTML，並停用回上一頁的記憶頁(bfcache)，
+    HTML 內的 ?v={{STATIC_VER}} 再保證 JS/CSS 也是新的。靜態檔不受影響（有版本號）。
+    """
+    try:
+        ct = (resp.headers.get("Content-Type") or "")
+        if ct.startswith("text/html"):
+            resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            resp.headers["Pragma"] = "no-cache"
+            resp.headers["Expires"] = "0"
+    except Exception:
+        pass
+    return resp
+
+
 @app.route("/health")
 def health():
     return {"service": "real-estate-people", "status": "ok"}, 200
