@@ -583,15 +583,76 @@
     reader.readAsDataURL(file);
   }
 
+  // 偵測圖片四周「均勻空白邊」回傳主體 box（原圖座標）。
+  // 只用來決定裁切框「初始對焦位置」（非破壞性，使用者仍可自由調整），
+  // 所以門檻放寬：抓得到主體就用，抓不到就回 null（用整張置中）。
+  function detectContentBox(img) {
+    try {
+      const DET = 420;
+      const s = Math.min(1, DET / Math.max(img.width, img.height));
+      const dw = Math.max(1, Math.round(img.width * s));
+      const dh = Math.max(1, Math.round(img.height * s));
+      const dc = document.createElement('canvas');
+      dc.width = dw; dc.height = dh;
+      const x2 = dc.getContext('2d', { willReadFrequently: true });
+      x2.drawImage(img, 0, 0, dw, dh);
+      const d = x2.getImageData(0, 0, dw, dh).data;
+      const at = (x, y) => { const i = (y * dw + x) * 4; return [d[i], d[i+1], d[i+2], d[i+3]]; };
+      const cor = [at(0,0), at(dw-1,0), at(0,dh-1), at(dw-1,dh-1)];
+      const trans = cor.every(c => c[3] < 24);
+      const bg = [0,1,2].map(k => Math.round(cor.reduce((a,c)=>a+c[k],0)/4));
+      const isBg = (p) => trans ? p[3] < 24
+        : (p[3] > 24 && (p[0]-bg[0])**2 + (p[1]-bg[1])**2 + (p[2]-bg[2])**2 < 2600);
+      // 外圈是否大致為背景（放寬到 60%），不是就當一般照片不對焦
+      let ring = 0, rbg = 0;
+      for (let x = 0; x < dw; x++) { ring += 2; if (isBg(at(x,0))) rbg++; if (isBg(at(x,dh-1))) rbg++; }
+      for (let y = 0; y < dh; y++) { ring += 2; if (isBg(at(0,y))) rbg++; if (isBg(at(dw-1,y))) rbg++; }
+      if (!ring || rbg / ring < 0.6) return null;
+      let mnX = dw, mnY = dh, mxX = -1, mxY = -1;
+      for (let y = 0; y < dh; y++) for (let x = 0; x < dw; x++) {
+        if (!isBg(at(x,y))) { if (x<mnX)mnX=x; if (x>mxX)mxX=x; if (y<mnY)mnY=y; if (y>mxY)mxY=y; }
+      }
+      if (mxX < 0 || mxY < 0) return null;
+      const bw = mxX - mnX + 1, bh = mxY - mnY + 1;
+      if (bw < dw * 0.08 || bh < dh * 0.08) return null;        // 主體過小→偵測異常
+      if (bw > dw * 0.96 && bh > dh * 0.96) return null;        // 幾乎沒邊
+      const pad = 0.06, inv = 1 / s;
+      return {
+        x: Math.max(0, (mnX - bw*pad) * inv),
+        y: Math.max(0, (mnY - bh*pad) * inv),
+        w: Math.min(img.width,  (bw * (1+pad*2)) * inv),
+        h: Math.min(img.height, (bh * (1+pad*2)) * inv),
+      };
+    } catch (_) { return null; }
+  }
+
   function openAvatarCropper(img) {
     _crop.img = img;
     // minScale：圖片較短邊縮到剛好等於裁切框 → 圓一定被填滿，永遠不可能留白
     _crop.minScale = CROP_V / Math.min(img.width, img.height);
-    _crop.scale = _crop.minScale;                 // 預設就是「填滿」
-    _crop.ox = (CROP_V - img.width  * _crop.scale) / 2;   // 置中
-    _crop.oy = (CROP_V - img.height * _crop.scale) / 2;
+
+    // 預設：自動對焦到主體（裁掉四周空白），讓「直接按確定」就填滿
+    const box = detectContentBox(img);
+    if (box) {
+      // 讓主體 box 的較長邊剛好塞滿裁切框（再不可小於 minScale 以免露白）
+      _crop.scale = Math.max(_crop.minScale, CROP_V / Math.min(box.w, box.h));
+      const bcx = box.x + box.w / 2, bcy = box.y + box.h / 2;   // 主體中心
+      _crop.ox = CROP_V / 2 - bcx * _crop.scale;
+      _crop.oy = CROP_V / 2 - bcy * _crop.scale;
+    } else {
+      _crop.scale = _crop.minScale;                             // 一般照片：整張置中填滿
+      _crop.ox = (CROP_V - img.width  * _crop.scale) / 2;
+      _crop.oy = (CROP_V - img.height * _crop.scale) / 2;
+    }
+    clampCrop();
+
     const zoom = $('#cropZoom');
-    if (zoom) { zoom.min = 1; zoom.max = 4; zoom.step = 0.01; zoom.value = 1; }
+    if (zoom) {
+      const mult = _crop.scale / _crop.minScale;                // 目前是 minScale 的幾倍
+      zoom.min = 1; zoom.step = 0.01;
+      zoom.max = Math.max(4, Math.ceil(mult) + 1);              // 自動對焦若超過 4 倍就延伸滑桿
+      zoom.value = mult;
+    }
     $('#avatarCropModal').style.display = 'flex';
     drawCrop();
   }
@@ -691,8 +752,19 @@
       });
       document.body.appendChild(fi);
     }
-    // 點頭像 → 選檔
-    $('#detailAvatar').addEventListener('click', () => fi.click());
+    // 點頭像：已有頭像 → 直接載入目前這張進裁切框重新調整（免再找原檔）；
+    //         還沒頭像 → 開檔案選擇器。（要換成別張圖：用旁邊 📋 貼上或拖曳）
+    $('#detailAvatar').addEventListener('click', () => {
+      const raw = state.person && state.person.avatar_b64;
+      if (raw) {
+        const img = new Image();
+        img.onerror = () => fi.click();          // 載入失敗就退回選檔
+        img.onload = () => openAvatarCropper(img);
+        img.src = raw.startsWith('data:') ? raw : 'data:image/jpeg;base64,' + raw;
+      } else {
+        fi.click();
+      }
+    });
 
     // Cmd/Ctrl+V 貼圖：依當前可見區決定去處
     // - 焦點在 textarea/input → 不接管（貼文字）
