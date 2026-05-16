@@ -583,9 +583,10 @@
     reader.readAsDataURL(file);
   }
 
-  // 偵測圖片四周「均勻空白邊」回傳主體 box（原圖座標）。
-  // 只用來決定裁切框「初始對焦位置」（非破壞性，使用者仍可自由調整），
-  // 所以門檻放寬：抓得到主體就用，抓不到就回 null（用整張置中）。
+  // 逐邊裁掉「整條都是同一純色」的空白邊（白/黑/透明/灰皆可），
+  // 不靠四角同色——所以「只有右邊白」「只有四周灰」都抓得到；
+  // 一般照片的邊緣不是純色 → 不裁。回傳主體 box（原圖座標）或 null。
+  // 只用來決定裁切框初始位置（非破壞性，使用者仍可手動調整）。
   function detectContentBox(img) {
     try {
       const DET = 420;
@@ -597,29 +598,46 @@
       const x2 = dc.getContext('2d', { willReadFrequently: true });
       x2.drawImage(img, 0, 0, dw, dh);
       const d = x2.getImageData(0, 0, dw, dh).data;
-      const at = (x, y) => { const i = (y * dw + x) * 4; return [d[i], d[i+1], d[i+2], d[i+3]]; };
-      const cor = [at(0,0), at(dw-1,0), at(0,dh-1), at(dw-1,dh-1)];
-      const trans = cor.every(c => c[3] < 24);
-      const bg = [0,1,2].map(k => Math.round(cor.reduce((a,c)=>a+c[k],0)/4));
-      const isBg = (p) => trans ? p[3] < 24
-        : (p[3] > 24 && (p[0]-bg[0])**2 + (p[1]-bg[1])**2 + (p[2]-bg[2])**2 < 2600);
-      // 外圈是否大致為背景（放寬到 60%），不是就當一般照片不對焦
-      let ring = 0, rbg = 0;
-      for (let x = 0; x < dw; x++) { ring += 2; if (isBg(at(x,0))) rbg++; if (isBg(at(x,dh-1))) rbg++; }
-      for (let y = 0; y < dh; y++) { ring += 2; if (isBg(at(0,y))) rbg++; if (isBg(at(dw-1,y))) rbg++; }
-      if (!ring || rbg / ring < 0.6) return null;
-      let mnX = dw, mnY = dh, mxX = -1, mxY = -1;
-      for (let y = 0; y < dh; y++) for (let x = 0; x < dw; x++) {
-        if (!isBg(at(x,y))) { if (x<mnX)mnX=x; if (x>mxX)mxX=x; if (y<mnY)mnY=y; if (y>mxY)mxY=y; }
+      const idx = (x, y) => (y * dw + x) * 4;
+
+      // 一條線（整列或整欄）是不是「幾乎純色」：
+      // 取線上像素 RGB 的極差總和，夠小＝平坦（空白邊）；全透明也算。
+      const FLAT = 38;          // 極差容忍（越小越嚴）
+      function lineIsFlat(getXY, n) {
+        let mnR=255,mnG=255,mnB=255,mxR=0,mxG=0,mxB=0, opaque=0;
+        for (let t = 0; t < n; t++) {
+          const [x, y] = getXY(t);
+          const i = idx(x, y);
+          if (d[i+3] < 24) continue;                 // 透明像素不計（透明邊照樣算平坦）
+          opaque++;
+          const r=d[i], g=d[i+1], b=d[i+2];
+          if (r<mnR)mnR=r; if (r>mxR)mxR=r;
+          if (g<mnG)mnG=g; if (g>mxG)mxG=g;
+          if (b<mnB)mnB=b; if (b>mxB)mxB=b;
+        }
+        if (opaque === 0) return true;               // 整條透明 → 平坦
+        return (mxR-mnR) + (mxG-mnG) + (mxB-mnB) <= FLAT;
       }
-      if (mxX < 0 || mxY < 0) return null;
-      const bw = mxX - mnX + 1, bh = mxY - mnY + 1;
-      if (bw < dw * 0.08 || bh < dh * 0.08) return null;        // 主體過小→偵測異常
-      if (bw > dw * 0.96 && bh > dh * 0.96) return null;        // 幾乎沒邊
-      const pad = 0.06, inv = 1 / s;
+      const colFlat = (x) => lineIsFlat((t) => [x, t], dh);
+      const rowFlat = (y) => lineIsFlat((t) => [t, y], dw);
+
+      const capX = Math.floor(dw * 0.45);            // 每邊最多裁 45%，避免裁過頭
+      const capY = Math.floor(dh * 0.45);
+      let L = 0, R = 0, T = 0, B = 0;
+      while (L < capX && colFlat(L)) L++;
+      while (R < capX && colFlat(dw - 1 - R)) R++;
+      while (T < capY && rowFlat(T)) T++;
+      while (B < capY && rowFlat(dh - 1 - B)) B++;
+      if (L + R + T + B === 0) return null;           // 沒有純色邊 → 一般照片，不對焦
+
+      const bw = dw - L - R, bh = dh - T - B;
+      if (bw < dw * 0.1 || bh < dh * 0.1) return null;          // 偵測異常（主體過小）
+      if (bw > dw * 0.97 && bh > dh * 0.97) return null;        // 幾乎沒邊可裁
+
+      const pad = 0.05, inv = 1 / s;                  // 留一點呼吸空間，換回原圖座標
       return {
-        x: Math.max(0, (mnX - bw*pad) * inv),
-        y: Math.max(0, (mnY - bh*pad) * inv),
+        x: Math.max(0, (L - bw*pad) * inv),
+        y: Math.max(0, (T - bh*pad) * inv),
         w: Math.min(img.width,  (bw * (1+pad*2)) * inv),
         h: Math.min(img.height, (bh * (1+pad*2)) * inv),
       };
