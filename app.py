@@ -19,6 +19,7 @@ Firestore 集合：
 """
 
 import os
+import time
 import logging
 from datetime import timedelta
 
@@ -46,6 +47,11 @@ app.secret_key = _secret or "dev-only-insecure-key"
 app.config["SESSION_COOKIE_SAMESITE"] = "None"
 app.config["SESSION_COOKIE_SECURE"] = True
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
+
+# 靜態檔版本號：用行程啟動時間（每次部署＝新 Cloud Run revision＝新行程＝新值）。
+# 模板用 ?v={{ STATIC_VER }} 掛在 .js/.css 後面 → 部署後瀏覽器一定抓新檔，
+# 不會再有「改了卻還是舊版（快取）」的問題。
+app.jinja_env.globals["STATIC_VER"] = str(int(time.time()))
 
 
 # ── Auth + Blueprints ──
