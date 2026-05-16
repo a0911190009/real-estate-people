@@ -8,6 +8,27 @@
   <link rel="stylesheet" href="/static/people.css?v={{ STATIC_VER }}">
   <link rel="stylesheet" href="{{ portal_url }}/static/feedback-widget.css">
   <link rel="stylesheet" href="{{ portal_url }}/static/upload-menu.css">
+  <!-- 關鍵頭像樣式直接內嵌（HTML 動態產生不被快取）：
+       即使瀏覽器仍用舊的 people.css 快取，也強制頭像＝填滿的正圓，
+       不留白、不變方形。!important 壓過任何外部舊樣式。 -->
+  <style>
+    #detailAvatar {
+      width: 84px !important;
+      height: 84px !important;
+      border-radius: 50% !important;
+      overflow: hidden !important;
+      aspect-ratio: 1 / 1 !important;
+      flex: 0 0 84px !important;
+      padding: 0 !important;
+    }
+    #detailAvatar img {
+      width: 100% !important;
+      height: 100% !important;
+      object-fit: cover !important;
+      border-radius: 50% !important;
+      display: block !important;
+    }
+  </style>
 </head>
 <body class="detail-page">
 
