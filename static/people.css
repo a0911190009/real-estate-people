@@ -62,6 +62,18 @@ input, select, textarea { font-family: inherit; font-size: inherit; color: inher
   font-size: 18px;
   font-weight: 600;
 }
+/* 自訂 LOGO 圖示 + 文字（只作用在首頁 header，不影響詳情/群組頁） */
+.hdr h1.app-logo {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.hdr h1.app-logo img {
+  height: 28px;
+  width: 28px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
 .hdr-right {
   display: flex;
   align-items: center;
