@@ -83,6 +83,65 @@
   }
 
   // ═════════════════════════════════════════
+  //  分頁身份：標題 + favicon 換成這位客戶
+  // ═════════════════════════════════════════
+
+  // 把 64x64 canvas 設成分頁 favicon（移除舊的 icon link，換新的 PNG）
+  function applyFavicon(canvas) {
+    try {
+      const url = canvas.toDataURL('image/png');
+      document.querySelectorAll('link[rel~="icon"]').forEach(l => l.remove());
+      const link = document.createElement('link');
+      link.rel = 'icon';
+      link.type = 'image/png';
+      link.href = url;
+      document.head.appendChild(link);
+    } catch (_) { /* 失敗就維持預設 favicon，不影響功能 */ }
+  }
+
+  // 沒有頭像時：用「卡片顏色當底 + 姓名首字」畫一個圓形 favicon
+  function drawLetterFavicon(name, bgColor) {
+    const c = document.createElement('canvas');
+    c.width = c.height = 64;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = bgColor || '#6366f1';   // 預設靛藍
+    ctx.beginPath();
+    ctx.arc(32, 32, 32, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 38px -apple-system, "PingFang TC", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText((name || '?').trim().charAt(0) || '?', 32, 36);
+    applyFavicon(c);
+  }
+
+  function setPageIdentity(person) {
+    const name = person.name || person.display_name || '人脈';
+    // 分頁標題：客戶名在前，多分頁時看得到是誰
+    document.title = `${name}${person.is_group ? '（群組）' : ''} — 人脈詳情`;
+
+    const raw = person.avatar_b64;
+    if (raw) {
+      // 有頭像 → 載入後裁成正方形畫進 64x64 canvas（轉 PNG 當 favicon 最穩）
+      const src = raw.startsWith('data:') ? raw : 'data:image/jpeg;base64,' + raw;
+      const img = new Image();
+      img.onload = () => {
+        const c = document.createElement('canvas');
+        c.width = c.height = 64;
+        const ctx = c.getContext('2d');
+        const s = Math.min(img.width, img.height);          // 取中間正方形
+        ctx.drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, 0, 0, 64, 64);
+        applyFavicon(c);
+      };
+      img.onerror = () => drawLetterFavicon(name, person.card_color);
+      img.src = src;
+    } else {
+      drawLetterFavicon(name, person.card_color);
+    }
+  }
+
+  // ═════════════════════════════════════════
   //  載入資料
   // ═════════════════════════════════════════
 
@@ -95,6 +154,8 @@
         api('GET', `/api/people/${PID}/contacts`),
       ]);
       state.person = person;
+      // 分頁標題 + favicon 換成這位客戶（同時開多人分頁時一眼分辨是誰）
+      setPageIdentity(person);
       // 第一次點開看詳情 → 標記已看過，回列表就會從「最近新增」置頂帶歸位
       // （fire-and-forget，不阻塞畫面；不算互動，不影響聯絡時間/排序）
       if (!person.opened_at) {
