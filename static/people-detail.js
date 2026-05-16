@@ -675,8 +675,9 @@
       }
     });
 
-    // Picker 按鈕
-    $('#btnPasteAvatar')?.addEventListener('click', () => {
+    // Picker 按鈕（注意：id 用 btnPickAvatar，不可與頭像旁的 📋 icon
+    //「btnPasteAvatar」撞名，否則事件會綁到第一個同 id 的 icon 上）
+    $('#btnPickAvatar')?.addEventListener('click', () => {
       const fs = _pendingPasteFiles;
       _pendingPasteFiles = null;
       $('#pasteTargetModal').style.display = 'none';
