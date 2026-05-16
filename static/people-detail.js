@@ -559,19 +559,93 @@
   }
 
   // ═════════════════════════════════════════
-  //  頭像上傳（canvas 中心裁切 160px JPEG + Cmd+V 貼上）
+  //  頭像上傳：縮放/拖曳裁切框（所見即所得，保證填滿圓不留白）
   // ═════════════════════════════════════════
-  const AVATAR_SIZE = 160;
+  const AVATAR_SIZE = 160;        // 最終存檔尺寸
+  const CROP_V = 260;             // 裁切框（顯示）尺寸
+  // 裁切狀態：img 原圖、scale 目前縮放、minScale 剛好填滿圓的縮放（下限）
+  const _crop = { img: null, scale: 1, minScale: 1, ox: 0, oy: 0, drag: false, lx: 0, ly: 0 };
 
-  async function uploadAvatarFile(file) {
+  // 任何上傳入口（點頭像/Cmd+V/貼上選單/拖檔）都先進這裡開裁切框
+  function uploadAvatarFile(file) {
     if (!file || !file.type || !file.type.startsWith('image/')) {
       showToast('請選圖片檔', 'danger');
       return;
     }
+    const reader = new FileReader();
+    reader.onerror = () => showToast('讀檔失敗', 'danger');
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => showToast('圖片解析失敗', 'danger');
+      img.onload = () => openAvatarCropper(img);
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function openAvatarCropper(img) {
+    _crop.img = img;
+    // minScale：圖片較短邊縮到剛好等於裁切框 → 圓一定被填滿，永遠不可能留白
+    _crop.minScale = CROP_V / Math.min(img.width, img.height);
+    _crop.scale = _crop.minScale;                 // 預設就是「填滿」
+    _crop.ox = (CROP_V - img.width  * _crop.scale) / 2;   // 置中
+    _crop.oy = (CROP_V - img.height * _crop.scale) / 2;
+    const zoom = $('#cropZoom');
+    if (zoom) { zoom.min = 1; zoom.max = 4; zoom.step = 0.01; zoom.value = 1; }
+    $('#avatarCropModal').style.display = 'flex';
+    drawCrop();
+  }
+
+  // 限制平移範圍：圖片邊界不可進入裁切框內（保證滿版）
+  function clampCrop() {
+    const dw = _crop.img.width * _crop.scale;
+    const dh = _crop.img.height * _crop.scale;
+    _crop.ox = Math.min(0, Math.max(CROP_V - dw, _crop.ox));
+    _crop.oy = Math.min(0, Math.max(CROP_V - dh, _crop.oy));
+  }
+
+  function drawCrop() {
+    const c = $('#cropCanvas');
+    if (!c || !_crop.img) return;
+    c.width = CROP_V; c.height = CROP_V;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, CROP_V, CROP_V);
+    clampCrop();
+    ctx.drawImage(_crop.img, _crop.ox, _crop.oy,
+      _crop.img.width * _crop.scale, _crop.img.height * _crop.scale);
+  }
+
+  // 滑桿縮放：value 1~4 代表「填滿的 1~4 倍」，並以中心為基準縮放
+  function setCropZoom(mult) {
+    const cx = CROP_V / 2, cy = CROP_V / 2;
+    const ix = (cx - _crop.ox) / _crop.scale;
+    const iy = (cy - _crop.oy) / _crop.scale;
+    _crop.scale = _crop.minScale * mult;
+    _crop.ox = cx - ix * _crop.scale;
+    _crop.oy = cy - iy * _crop.scale;
+    drawCrop();
+  }
+
+  function closeCrop() {
+    $('#avatarCropModal').style.display = 'none';
+    _crop.img = null;
+  }
+
+  async function confirmCrop() {
+    if (!_crop.img) return;
+    const k = AVATAR_SIZE / CROP_V;               // 裁切框 → 160 的比例
+    const cv = document.createElement('canvas');
+    cv.width = AVATAR_SIZE; cv.height = AVATAR_SIZE;
+    const ctx = cv.getContext('2d');
+    ctx.fillStyle = '#ffffff';                    // 透明圖鋪白底（JPEG 否則變黑）
+    ctx.fillRect(0, 0, AVATAR_SIZE, AVATAR_SIZE);
+    ctx.drawImage(_crop.img, _crop.ox * k, _crop.oy * k,
+      _crop.img.width * _crop.scale * k, _crop.img.height * _crop.scale * k);
+    const b64 = cv.toDataURL('image/jpeg', 0.9);
+    closeCrop();
     try {
-      const b64 = await processAvatar(file);
-      // 樂觀更新本地預覽
-      $('#detailAvatar').innerHTML = `<img src="${b64}" alt="">`;
+      $('#detailAvatar').innerHTML = `<img src="${b64}" alt="">`;   // 樂觀預覽
       await api('POST', `/api/people/${PID}/avatar`, { avatar_b64: b64 });
       showToast('頭像已更新');
       await loadAll();
@@ -580,94 +654,26 @@
     }
   }
 
-  // 偵測圖片四周「均勻空白邊」（透明 or 純色，常見於貼圖/去背圖），
-  // 回傳主體的 bounding box（原圖座標）。一般照片邊緣不均勻 → 回傳整張不裁。
-  function detectContentBox(img) {
-    try {
-      const DET = 480;                                   // 偵測用縮圖最長邊
-      const scale = Math.min(1, DET / Math.max(img.width, img.height));
-      const dw = Math.max(1, Math.round(img.width * scale));
-      const dh = Math.max(1, Math.round(img.height * scale));
-      const dc = document.createElement('canvas');
-      dc.width = dw; dc.height = dh;
-      const dctx = dc.getContext('2d', { willReadFrequently: true });
-      dctx.drawImage(img, 0, 0, dw, dh);
-      const data = dctx.getImageData(0, 0, dw, dh).data;
-      const at = (x, y) => { const i = (y * dw + x) * 4; return [data[i], data[i+1], data[i+2], data[i+3]]; };
-
-      // 取四角平均當「背景色」；四角幾乎全透明 → 走透明判定
-      const corners = [at(0,0), at(dw-1,0), at(0,dh-1), at(dw-1,dh-1)];
-      const transparentMode = corners.every(c => c[3] < 24);
-      const bg = [0,0,0].map((_, k) => Math.round(corners.reduce((s,c)=>s+c[k],0)/4));
-      const isBg = (px) => transparentMode
-        ? px[3] < 24
-        : (px[3] > 24 &&
-           (px[0]-bg[0])**2 + (px[1]-bg[1])**2 + (px[2]-bg[2])**2 < 1600);  // 色距 < ~40
-
-      // 先確認確實是「框邊均勻」的圖（外圈 2px 有 ≥85% 是背景），否則當一般照片不裁
-      let ring = 0, ringBg = 0;
-      for (let x = 0; x < dw; x++) for (const y of [0, 1, dh-2, dh-1]) {
-        if (y < 0 || y >= dh) continue; ring++; if (isBg(at(x, y))) ringBg++;
-      }
-      for (let y = 0; y < dh; y++) for (const x of [0, 1, dw-2, dw-1]) {
-        if (x < 0 || x >= dw) continue; ring++; if (isBg(at(x, y))) ringBg++;
-      }
-      if (ring === 0 || ringBg / ring < 0.85) return null;   // 不是框邊圖 → 不裁
-
-      // 掃出非背景的最小外接框
-      let minX = dw, minY = dh, maxX = -1, maxY = -1;
-      for (let y = 0; y < dh; y++) for (let x = 0; x < dw; x++) {
-        if (!isBg(at(x, y))) {
-          if (x < minX) minX = x; if (x > maxX) maxX = x;
-          if (y < minY) minY = y; if (y > maxY) maxY = y;
-        }
-      }
-      if (maxX < 0 || maxY < 0) return null;                 // 整張都是空白
-      const bw = maxX - minX + 1, bh = maxY - minY + 1;
-      if (bw < dw * 0.1 || bh < dh * 0.1) return null;        // 偵測異常（主體過小）→ 保險不裁
-      if (bw > dw * 0.94 && bh > dh * 0.94) return null;      // 幾乎沒邊可裁
-
-      // 留一點呼吸空間（主體的 5%），換回原圖座標
-      const padX = bw * 0.05, padY = bh * 0.05;
-      const inv = 1 / scale;
-      return {
-        x: Math.max(0, (minX - padX) * inv),
-        y: Math.max(0, (minY - padY) * inv),
-        w: Math.min(img.width,  (bw + padX*2) * inv),
-        h: Math.min(img.height, (bh + padY*2) * inv),
-      };
-    } catch (_) {
-      return null;                                           // 任何失敗 → 不裁，照原邏輯
-    }
-  }
-
-  function processAvatar(file) {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      const reader = new FileReader();
-      reader.onload = () => { img.src = reader.result; };
-      reader.onerror = () => reject(new Error('讀檔失敗'));
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        canvas.width = AVATAR_SIZE;
-        canvas.height = AVATAR_SIZE;
-        const ctx = canvas.getContext('2d');
-        // 透明圖先鋪白底（JPEG 不支援透明，否則會變黑）
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, AVATAR_SIZE, AVATAR_SIZE);
-
-        // 先嘗試裁掉四周均勻空白邊（貼圖/去背圖 → 主體放大填滿圓）
-        const box = detectContentBox(img) || { x: 0, y: 0, w: img.width, h: img.height };
-        // 在主體框內取中心正方形
-        const side = Math.min(box.w, box.h);
-        const sx = box.x + (box.w - side) / 2;
-        const sy = box.y + (box.h - side) / 2;
-        ctx.drawImage(img, sx, sy, side, side, 0, 0, AVATAR_SIZE, AVATAR_SIZE);
-        resolve(canvas.toDataURL('image/jpeg', 0.9));
-      };
-      img.onerror = () => reject(new Error('圖片解析失敗'));
-      reader.readAsDataURL(file);
+  // 裁切框拖曳（滑鼠 + 觸控統一用 pointer 事件）
+  function bindCropDrag() {
+    const stage = $('#cropStage');
+    if (!stage) return;
+    stage.addEventListener('pointerdown', (e) => {
+      if (!_crop.img) return;
+      _crop.drag = true; _crop.lx = e.clientX; _crop.ly = e.clientY;
+      stage.setPointerCapture(e.pointerId);
+      stage.style.cursor = 'grabbing';
     });
+    stage.addEventListener('pointermove', (e) => {
+      if (!_crop.drag) return;
+      _crop.ox += e.clientX - _crop.lx;
+      _crop.oy += e.clientY - _crop.ly;
+      _crop.lx = e.clientX; _crop.ly = e.clientY;
+      drawCrop();
+    });
+    const end = () => { _crop.drag = false; const s = $('#cropStage'); if (s) s.style.cursor = 'grab'; };
+    stage.addEventListener('pointerup', end);
+    stage.addEventListener('pointercancel', end);
   }
 
   function bindAvatarUpload() {
@@ -2323,6 +2329,19 @@
     $('#btnStopRec').addEventListener('click', () => stopRecording(false));
     $('#recordModal').addEventListener('click', (e) => {
       if (e.target.id === 'recordModal') closeRecordModal();
+    });
+
+    // 頭像裁切 Modal
+    bindCropDrag();
+    $('#btnCloseCrop')?.addEventListener('click', closeCrop);
+    $('#btnCancelCrop')?.addEventListener('click', closeCrop);
+    $('#btnConfirmCrop')?.addEventListener('click', confirmCrop);
+    $('#cropZoom')?.addEventListener('input', (e) => setCropZoom(parseFloat(e.target.value)));
+    $('#avatarCropModal')?.addEventListener('click', (e) => {
+      if (e.target.id === 'avatarCropModal') closeCrop();
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && $('#avatarCropModal')?.style.display === 'flex') closeCrop();
     });
 
     loadAll();

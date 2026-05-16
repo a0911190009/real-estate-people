@@ -1517,6 +1517,39 @@ a.prop-source-link:hover { color: var(--primary); text-decoration: underline; }
   opacity: 1;
 }
 .detail-avatar img { width: 100%; height: 100%; object-fit: cover; }
+
+/* 頭像裁切框：方形舞台 + 圓形遮罩（圈內＝最終頭像） */
+.crop-stage {
+  position: relative;
+  width: 260px;
+  height: 260px;
+  margin: 0 auto;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #f1f5f9;
+  cursor: grab;
+  touch-action: none;          /* 觸控拖曳不被瀏覽器捲動搶走 */
+  user-select: none;
+}
+.crop-stage #cropCanvas { display: block; width: 260px; height: 260px; }
+.crop-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  pointer-events: none;
+  box-shadow: 0 0 0 999px rgba(255, 255, 255, 0.62);   /* 圈外調暗 */
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+.crop-zoom {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+  color: var(--text-muted);
+  font-size: 16px;
+}
+.crop-zoom input[type="range"] { flex: 1; }
 .detail-hero-text { flex: 1; min-width: 0; }
 .detail-hero-text h2 {
   margin: 0 0 4px 0;
